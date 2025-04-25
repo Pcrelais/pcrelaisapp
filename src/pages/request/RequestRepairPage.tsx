@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, ChevronRight, HelpCircle, MessageSquare, Info } from 'lucide-react';
+import { ChevronRight, HelpCircle, MessageSquare, Info } from 'lucide-react';
 import Layout from '../../components/layout/Layout';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -68,7 +68,18 @@ const RequestRepairPage: React.FC = () => {
   const [model, setModel] = useState('');
   const [problemDescription, setProblemDescription] = useState('');
   const [address, setAddress] = useState('');
-  const [placeId, setPlaceId] = useState('');
+  // Définir un type pour les coordonnées avec toutes les propriétés nécessaires
+  // Ce type doit correspondre à celui utilisé dans GooglePlacesAutocomplete
+  type Coordinates = {
+    lat: number, 
+    lng: number, 
+    address?: string,
+    streetAddress?: string,
+    city?: string,
+    postalCode?: string
+  };
+  
+  const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
   const [aiDiagnosis, setAiDiagnosis] = useState('');
   const [selectedRelayPoint, setSelectedRelayPoint] = useState('');
   // Définir le type avec les propriétés explicites pour éviter les erreurs TypeScript
@@ -281,12 +292,54 @@ const RequestRepairPage: React.FC = () => {
       return;
     }
     
+    // Afficher les coordonnées actuelles pour le débogage
+    console.log('Coordonnées actuelles avant vérification:', coordinates);
+    
+    // Vérifier si nous avons des coordonnées valides
+    let validCoordinates = coordinates;
+  
+    if (!validCoordinates || typeof validCoordinates.lat !== 'number' || typeof validCoordinates.lng !== 'number') {
+      console.log('Coordonnées invalides ou non disponibles, utilisation des coordonnées par défaut pour la France');
+      
+      // Utiliser des coordonnées par défaut pour la France
+      validCoordinates = {
+        lat: 46.603354, // Centre de la France
+        lng: 1.888334,
+        address: address,
+        streetAddress: '',
+        city: '',
+        postalCode: ''
+      };
+      
+      // Mettre à jour l'état des coordonnées
+      setCoordinates(validCoordinates);
+      
+      console.log('ATTENTION: Utilisation des coordonnées par défaut car aucune coordonnée valide n\'a été fournie');
+    } else {
+      console.log('Utilisation des coordonnées EXACTES fournies par Google Places:', validCoordinates);
+    }
+    
     try {
       setLoading(true);
       setError(null);
       
       // Rechercher les points relais à proximité (rayon de 20 km)
-      const nearbyRelayPoints = await relayPointService.getNearbyRelayPoints(address, 20);
+      // Utiliser les coordonnées valides que nous avons préparées
+      console.log('Recherche de points relais avec les coordonnées EXACTES:', validCoordinates);
+      
+      // Afficher les informations détaillées sur l'adresse
+      if (validCoordinates.city || validCoordinates.postalCode) {
+        console.log('Détails de l\'adresse pour la recherche:', {
+          adresse: validCoordinates.address,
+          rue: validCoordinates.streetAddress,
+          ville: validCoordinates.city,
+          codePostal: validCoordinates.postalCode,
+          latitude: validCoordinates.lat,
+          longitude: validCoordinates.lng
+        });
+      }
+      
+      const nearbyRelayPoints = await relayPointService.getNearbyRelayPointsByCoordinates(validCoordinates.lat, validCoordinates.lng, 20);
       
       // Les points relais sont déjà triés par distance et incluent la propriété distance
       // Convertir d'abord en unknown puis en RelayPointWithDistance pour éviter l'erreur TypeScript
@@ -530,36 +583,124 @@ const RequestRepairPage: React.FC = () => {
                         label="Votre adresse"
                         placeholder="Entrez votre adresse pour trouver les points relais proches"
                         value={address}
-                        onChange={(value, placeId) => {
+                        onChange={(value) => {
                           setAddress(value);
-                          if (placeId) setPlaceId(placeId);
+                          // Nous n'avons plus besoin de stocker le placeId
                         }}
                         onPlaceSelect={(place) => {
                           if (place.formatted_address) {
                             setAddress(place.formatted_address);
-                            // Déclencher automatiquement la recherche après sélection
-                            setTimeout(() => handleFindRelayPoints(), 100);
+                            // Ne pas déclencher la recherche ici, elle sera déclenchée après avoir reçu les coordonnées
                           }
+                        }}
+                        onCoordinatesSelect={(coords) => {
+                          console.log('Coordonnées reçues dans RequestRepairPage:', coords);
+                          
+                          // Vérifier que les coordonnées sont valides
+                          if (!coords || typeof coords.lat !== 'number' || typeof coords.lng !== 'number') {
+                            console.error('Coordonnées invalides reçues:', coords);
+                            // Utiliser des coordonnées par défaut pour la France
+                            const defaultCoords: Coordinates = {
+                              lat: 46.603354, // Centre de la France
+                              lng: 1.888334,
+                              address: address,
+                              streetAddress: '',
+                              city: '',
+                              postalCode: ''
+                            };
+                            console.log('Utilisation de coordonnées par défaut:', defaultCoords);
+                            
+                            // Déclencher la recherche directement avec les coordonnées par défaut
+                            // sans passer par l'état qui peut être réinitialisé
+                            try {
+                              setLoading(true);
+                              setError(null);
+                              console.log('Recherche directe avec coordonnées par défaut:', defaultCoords);
+                              relayPointService.getNearbyRelayPointsByCoordinates(defaultCoords.lat, defaultCoords.lng, 20)
+                                .then(nearbyRelayPoints => {
+                                  setRelayPoints(nearbyRelayPoints as unknown as RelayPointWithDistance[]);
+                                  if (nearbyRelayPoints.length === 0) {
+                                    setError('Aucun point relais trouvé à proximité de cette adresse. Essayez une autre adresse ou élargissez votre recherche.');
+                                  } else {
+                                    setShowMap(true);
+                                  }
+                                })
+                                .catch(error => {
+                                  console.error('Erreur lors de la recherche des points relais:', error);
+                                  setError(error.message || 'Une erreur est survenue lors de la recherche des points relais. Veuillez réessayer.');
+                                })
+                                .finally(() => {
+                                  setLoading(false);
+                                });
+                            } catch (error: any) {
+                              console.error('Erreur lors de la recherche des points relais:', error);
+                              setError(error.message || 'Une erreur est survenue lors de la recherche des points relais. Veuillez réessayer.');
+                              setLoading(false);
+                            }
+                            return;
+                          }
+                          
+                          // Si l'adresse complète est fournie avec les coordonnées, la mettre à jour
+                          if (coords.address && coords.address !== address) {
+                            console.log('Mise à jour de l\'adresse complète:', coords.address);
+                            setAddress(coords.address);
+                          }
+                          
+                          // Afficher les informations décomposées de l'adresse
+                          // Assurons-nous que coords est bien du type Coordinates
+                          const coordsWithDetails = coords as Coordinates;
+                          if (coordsWithDetails.streetAddress || coordsWithDetails.city || coordsWithDetails.postalCode) {
+                            console.log('Informations décomposées de l\'adresse:', {
+                              rue: coordsWithDetails.streetAddress,
+                              ville: coordsWithDetails.city,
+                              codePostal: coordsWithDetails.postalCode
+                            });
+                          }
+                          
+                          // Déclencher la recherche directement avec les coordonnées reçues
+                          // sans passer par l'état qui peut être réinitialisé
+                          try {
+                            setLoading(true);
+                            setError(null);
+                            console.log('Recherche directe avec coordonnées EXACTES:', coords);
+                            // S'assurer que coords est du type Coordinates
+                            const coordsToUse: Coordinates = {
+                              lat: coords.lat,
+                              lng: coords.lng,
+                              address: coords.address || '',
+                              // Utiliser le casting pour accéder aux propriétés supplémentaires
+                              streetAddress: (coords as Coordinates).streetAddress || '',
+                              city: (coords as Coordinates).city || '',
+                              postalCode: (coords as Coordinates).postalCode || ''
+                            };
+                            relayPointService.getNearbyRelayPointsByCoordinates(coordsToUse.lat, coordsToUse.lng, 20)
+                              .then(nearbyRelayPoints => {
+                                setRelayPoints(nearbyRelayPoints as unknown as RelayPointWithDistance[]);
+                                if (nearbyRelayPoints.length === 0) {
+                                  setError('Aucun point relais trouvé à proximité de cette adresse. Essayez une autre adresse ou élargissez votre recherche.');
+                                } else {
+                                  setShowMap(true);
+                                }
+                              })
+                              .catch(error => {
+                                console.error('Erreur lors de la recherche des points relais:', error);
+                                setError(error.message || 'Une erreur est survenue lors de la recherche des points relais. Veuillez réessayer.');
+                              })
+                              .finally(() => {
+                                setLoading(false);
+                              });
+                          } catch (error: any) {
+                            console.error('Erreur lors de la recherche des points relais:', error);
+                            setError(error.message || 'Une erreur est survenue lors de la recherche des points relais. Veuillez réessayer.');
+                            setLoading(false);
+                          }
+                          
+                          // Mettre à jour l'état des coordonnées pour une utilisation ultérieure
+                          setCoordinates(coords);
                         }}
                         disabled={loading}
                       />
-                      <div className="absolute right-2 top-9">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={handleFindRelayPoints}
-                          disabled={!address.trim() || loading}
-                          className="h-8"
-                        >
-                          {loading ? (
-                            <span className="animate-spin inline-block h-4 w-4 border-b-2 border-primary rounded-full"></span>
-                          ) : (
-                            <>
-                              <Search className="h-4 w-4 mr-1" /> Rechercher
-                            </>
-                          )}
-                        </Button>
-                      </div>
+                      {/* La recherche se fait automatiquement lorsqu'une adresse est sélectionnée */}
                     </div>
                   </div>
                 </div>

@@ -3,9 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
-import { ArrowLeft, MapPin, Save } from 'lucide-react';
+import { ArrowLeft, MapPin, Save, AlertCircle, Clock } from 'lucide-react';
 import { relayPointService } from '../../services/relayPointService';
 import Layout from '../../components/layout/Layout';
+import { useAuth } from '../../context/AuthContext';
 
 // Type spécifique pour le formulaire des points relais
 type RelayPointFormData = {
@@ -82,6 +83,7 @@ const OpeningHoursInput = ({ value, onChange }: {
 const RelayPointForm = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -108,6 +110,14 @@ const RelayPointForm = () => {
         setLoading(true);
         try {
           const relayPoint = await relayPointService.getRelayPointById(id);
+          
+          // Vérifier si l'utilisateur a le droit de modifier ce point relais
+          if (user && user.role !== 'admin' && id !== user.id) {
+            setError("Vous ne pouvez modifier que votre propre point relais.");
+            setLoading(false);
+            return;
+          }
+          
           if (relayPoint) {
             setFormData({
               id: relayPoint.id,
@@ -211,44 +221,57 @@ const RelayPointForm = () => {
     setLoading(true);
     setError(null);
     setSuccess(false);
-
+    
     try {
-      // Vérifier que les champs obligatoires sont remplis
+      // Validation des données
       if (!formData.businessName || !formData.address || !formData.email) {
-        setError('Veuillez remplir tous les champs obligatoires');
+        setError('Veuillez remplir tous les champs obligatoires.');
         setLoading(false);
         return;
       }
-
-      // Vérifier si les coordonnées sont disponibles
-      if (!formData.coordinates) {
-        setError('Les coordonnées géographiques sont manquantes. Veuillez sélectionner une adresse valide.');
-        setLoading(false);
-        return;
-      }
-
-      console.log('Envoi des coordonnées au service:', formData.coordinates);
       
-      // Créer ou mettre à jour le point relais
-      const result = await relayPointService.createOrUpdateRelayPoint({
+      // Vérifier si l'utilisateur a le droit de modifier ce point relais
+      if (formData.id && user && user.role !== 'admin' && formData.id !== user.id) {
+        setError("Vous ne pouvez modifier que votre propre point relais.");
+        setLoading(false);
+        return;
+      }
+      
+      // Préparer les données pour l'API
+      if (!formData.businessName || !formData.address || !formData.email) {
+        throw new Error('Champs obligatoires manquants');
+      }
+      
+      const dataToSave = {
         id: formData.id,
-        businessName: formData.businessName || '',
-        address: formData.address || '',
-        email: formData.email || '',
+        businessName: formData.businessName,
+        address: formData.address,
+        email: formData.email,
+        phoneNumber: formData.phoneNumber || '',
         firstName: formData.firstName || '',
         lastName: formData.lastName || '',
-        phoneNumber: formData.phoneNumber || '',
-        openingHours: formData.openingHours || {},
-        role: 'relayPoint',
+        role: 'relayPoint' as const,
         commission: formData.commission || 0,
-        coordinates: formData.coordinates // Ajout des coordonnées
-      });
+        openingHours: formData.openingHours || {},
+        coordinates: formData.coordinates,
+        currentUserId: user?.id // Ajouter l'ID de l'utilisateur courant pour la vérification d'autorisation
+      };
+      
+      // Appel à l'API pour créer ou mettre à jour le point relais
+      const result = await relayPointService.createOrUpdateRelayPoint(dataToSave);
+      
 
       if (result) {
         setSuccess(true);
-        // Rediriger vers la liste des points relais après un court délai
+        // Rediriger vers la liste après un court délai ou vers le profil si c'est un point relais
         setTimeout(() => {
-          navigate('/admin/relay-points');
+          if (user?.role === 'admin') {
+            navigate('/admin/relay-points');
+          } else if (user?.role === 'relayPoint') {
+            navigate('/relay/profile');
+          } else {
+            navigate('/dashboard');
+          }
         }, 1500);
       } else {
         setError('Erreur lors de l\'enregistrement du point relais');
@@ -280,6 +303,17 @@ const RelayPointForm = () => {
 
       <Card>
         <Card.Content className="p-6">
+          {user && user.role !== 'admin' && id && id !== user.id && (
+            <div className="mb-6 p-4 bg-warning/10 border border-warning/20 rounded-lg flex items-start">
+              <AlertCircle className="h-5 w-5 text-warning mr-2 mt-0.5" />
+              <div>
+                <p className="text-warning font-medium">Accès limité</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  En tant que point relais, vous ne pouvez modifier que vos propres informations.
+                </p>
+              </div>
+            </div>
+          )}
           {error && (
             <div className="mb-4 p-4 bg-error/10 border border-error/20 rounded-lg text-error">
               {error}
@@ -355,10 +389,19 @@ const RelayPointForm = () => {
               />
             </div>
 
-            <OpeningHoursInput
-              value={formData.openingHours}
-              onChange={handleOpeningHoursChange}
-            />
+            <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg mb-6">
+              <div className="flex items-start mb-3">
+                <Clock className="h-5 w-5 text-blue-500 mr-2 mt-0.5" />
+                <div>
+                  <p className="font-medium text-blue-800">Horaires d'ouverture</p>
+                  <p className="text-sm text-blue-600">Ces horaires seront affichés aux clients lors de la sélection d'un point relais.</p>
+                </div>
+              </div>
+              <OpeningHoursInput
+                value={formData.openingHours}
+                onChange={handleOpeningHoursChange}
+              />
+            </div>
 
             <div className="flex justify-end pt-4">
               <Button

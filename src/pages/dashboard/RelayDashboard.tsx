@@ -1,40 +1,58 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import Button from '../../components/ui/Button';
-import Badge from '../../components/ui/Badge';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { relayOperationService } from '../../services/relayOperationService';
 import { notificationService } from '../../services/notificationService';
-import { RepairRequest, Notification } from '../../types';
-
-// Composants modulaires du tableau de bord
-import DashboardStats from '../../components/dashboard/DashboardStats';
-import QuickActions from '../../components/dashboard/QuickActions';
-import AlertMessages from '../../components/dashboard/AlertMessages';
 import SearchAndFilters from '../../components/dashboard/SearchAndFilters';
+import Badge from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
+import Card from '../../components/ui/Card';
+import { UserCircle, Settings, QrCode, Package } from 'lucide-react';
 
-// Étendre le type RepairRequest pour inclure les propriétés spécifiques au point relais
-interface RelayRepairRequest extends RepairRequest {
+// Utilitaire de formatage de date
+const formatDate = (date: string) => {
+  return new Date(date).toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+// Définir le type pour les réparations du point relais
+interface RelayRepairRequest {
+  id: string;
+  clientId: string;
   clientName?: string;
+  deviceType: string;
+  brand: string;
+  model: string;
+  problemDescription: string;
+  statusId: string;
   statusName?: string;
   statusLabel?: string;
-  operation?: 'dropOff' | 'pickup' | 'transit';
+  createdAt: string;
+  updatedAt: string;
+  relayPointId?: string;
+  appointmentDate?: string;
+  operation?: 'dropOff' | 'pickup' | 'transit' | 'completed';
   expectedArrival?: string;
   drop_off_date?: string; // Date de dépôt de l'appareil
 }
 
 const RelayDashboard: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [repairs, setRepairs] = useState<RelayRepairRequest[]>([]);
-  // Cette variable est mise à jour mais n'est pas lue dans le composant actuel
-  // Elle pourrait être utilisée pour afficher les notifications dans une future mise à jour
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  // Notifications pour affichage futur
+  const [, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'dropOffs' | 'pickups' | 'transit' | 'all'>('all');
+  const [, setSuccessMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'all' | 'dropOffs' | 'pickups' | 'transit'>('all');
   const [stats, setStats] = useState({
     pendingDropOffs: 0,
     readyForPickup: 0,
@@ -42,37 +60,50 @@ const RelayDashboard: React.FC = () => {
     completedThisMonth: 0
   });
   
+  // Charger les données au montage du composant et lors du changement d'onglet
+  const loadData = async () => {
+    if (!user) return;
+    
+    try {
+      setLoading(true);
+      
+      // Charger les réparations du point relais en fonction de l'onglet actif
+      let repairsData: RelayRepairRequest[] = [];
+      
+      if (activeTab === 'all') {
+        repairsData = await relayOperationService.getRelayRepairs(user.id);
+      } else if (activeTab === 'dropOffs') {
+        repairsData = await relayOperationService.getPendingDropOffs(user.id);
+      } else if (activeTab === 'pickups') {
+        repairsData = await relayOperationService.getReadyForPickup(user.id);
+      } else if (activeTab === 'transit') {
+        repairsData = await relayOperationService.getInTransit(user.id);
+      }
+      
+      console.log(`Chargé ${repairsData?.length || 0} réparations pour l'onglet ${activeTab}`);
+      setRepairs(repairsData || []);
+      
+      // Charger les statistiques
+      const statsData = await relayOperationService.getRelayStats(user.id);
+      setStats(statsData);
+      
+      // Charger les notifications non lues
+      const notificationsData = await notificationService.getUnreadNotifications(user.id);
+      setNotifications(notificationsData);
+      
+      setError(null);
+    } catch (err) {
+      console.error('Erreur lors du chargement des données:', err);
+      setError('Impossible de charger les données. Veuillez réessayer plus tard.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   // Charger les données au montage du composant
   useEffect(() => {
-    const loadData = async () => {
-      if (!user) return;
-      
-      try {
-        setLoading(true);
-        
-        // Charger les réparations du point relais
-        const repairsData = await relayOperationService.getRelayRepairs(user.id);
-        setRepairs(repairsData);
-        
-        // Charger les statistiques
-        const statsData = await relayOperationService.getRelayStats(user.id);
-        setStats(statsData);
-        
-        // Charger les notifications non lues
-        const notificationsData = await notificationService.getUnreadNotifications(user.id);
-        setNotifications(notificationsData);
-        
-        setError(null);
-      } catch (err) {
-        console.error('Erreur lors du chargement des données:', err);
-        setError('Impossible de charger les données. Veuillez réessayer plus tard.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
     loadData();
-  }, [user]);
+  }, [user, activeTab]); // Recharger les données quand l'onglet change
   
   const filteredRequests = repairs.filter(request => 
     (request.clientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -81,26 +112,6 @@ const RelayDashboard: React.FC = () => {
     request.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     request.id?.toLowerCase().includes(searchTerm.toLowerCase()))
   );
-  
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-  };
-  
-  const formatDateTime = (dateString: string) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
   
   const renderStatusBadge = (statusName: string, statusLabel: string) => {
     const statusColors: Record<string, string> = {
@@ -208,6 +219,19 @@ const RelayDashboard: React.FC = () => {
   
   // Fonction pour afficher le contenu en fonction de l'onglet actif
   const renderTabContent = () => {
+    // Si aucune réparation n'est trouvée, afficher un message
+    if (repairs.length === 0) {
+      return (
+        <div className="p-6 text-center text-gray-500">
+          Aucune réparation trouvée pour cet onglet. 
+          {activeTab === 'pickups' && (
+            <p className="mt-2">Aucun ordinateur prêt à être récupéré pour le moment.</p>
+          )}
+        </div>
+      );
+    }
+    
+    // Sinon, afficher le contenu approprié
     switch (activeTab) {
       case 'dropOffs':
         return renderPendingDropOffs();
@@ -284,19 +308,21 @@ const RelayDashboard: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    {request.expectedArrival ? formatDateTime(request.expectedArrival) : formatDate(request.updatedAt)}
+                    {request.expectedArrival ? formatDate(request.expectedArrival) : formatDate(request.updatedAt)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => handleProcessDropOff(request.id)}
-                        disabled={processingId === request.id}
-                        className="whitespace-nowrap"
-                      >
-                        {processingId === request.id ? 'Traitement...' : 'Traiter le dépôt'}
-                      </Button>
+                      {request.statusName === 'SUBMITTED' && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleProcessDropOff(request.id)}
+                          disabled={processingId === request.id}
+                          className="whitespace-nowrap"
+                        >
+                          {processingId === request.id ? 'Traitement...' : 'Traiter le dépôt'}
+                        </Button>
+                      )}
                       <Link 
                         to={`/relay/repair/${request.id}`}
                         className="text-primary hover:text-primary-dark inline-flex items-center"
@@ -458,11 +484,11 @@ const RelayDashboard: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    {request.drop_off_date ? formatDateTime(request.drop_off_date) : formatDate(request.updatedAt)}
+                    {request.drop_off_date ? formatDate(request.drop_off_date) : formatDate(request.updatedAt)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <Link 
-                      to={`/relay/repair/${request.id}`}
+                      to={`/repair/${request.id}`}
                       className="text-primary hover:text-primary-dark"
                     >
                       Détails
@@ -486,23 +512,62 @@ const RelayDashboard: React.FC = () => {
       </div>
       
       {/* Cartes de statistiques */}
-      <DashboardStats 
-        pendingDropOffs={stats.pendingDropOffs}
-        readyForPickup={stats.readyForPickup}
-        inTransit={stats.inTransit}
-        completedThisMonth={stats.completedThisMonth}
-      />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card className="p-4 flex flex-col items-center justify-center">
+          <h3 className="text-lg font-semibold mb-1">Dépôts en attente</h3>
+          <p className="text-3xl font-bold text-blue-600">{stats.pendingDropOffs}</p>
+        </Card>
+        
+        <Card className="p-4 flex flex-col items-center justify-center">
+          <h3 className="text-lg font-semibold mb-1">Prêts à récupérer</h3>
+          <p className="text-3xl font-bold text-green-600">{stats.readyForPickup}</p>
+        </Card>
+        
+        <Card className="p-4 flex flex-col items-center justify-center">
+          <h3 className="text-lg font-semibold mb-1">En transit</h3>
+          <p className="text-3xl font-bold text-orange-600">{stats.inTransit}</p>
+        </Card>
+        
+        <Card className="p-4 flex flex-col items-center justify-center">
+          <h3 className="text-lg font-semibold mb-1">Terminés ce mois</h3>
+          <p className="text-3xl font-bold text-purple-600">{stats.completedThisMonth}</p>
+        </Card>
+      </div>
       
-      {/* Actions rapides */}
-      <QuickActions />
-      
-      {/* Notifications et messages d'alerte */}
-      <AlertMessages 
-        successMessage={successMessage}
-        errorMessage={error}
-        onClearSuccess={() => setSuccessMessage(null)}
-        onClearError={() => setError(null)}
-      />
+      {/* Actions rapides personnalisées pour les points relais */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/relay/profile')}>
+          <div className="flex flex-col items-center justify-center text-center">
+            <UserCircle className="h-8 w-8 text-primary mb-2" />
+            <h3 className="text-sm font-medium">Mon profil</h3>
+            <p className="text-xs text-gray-500 mt-1">Gérer mes informations</p>
+          </div>
+        </Card>
+        
+        <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/relay/scan')}>
+          <div className="flex flex-col items-center justify-center text-center">
+            <QrCode className="h-8 w-8 text-primary mb-2" />
+            <h3 className="text-sm font-medium">Scanner un QR code</h3>
+            <p className="text-xs text-gray-500 mt-1">Traiter une réparation</p>
+          </div>
+        </Card>
+        
+        <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/notifications')}>
+          <div className="flex flex-col items-center justify-center text-center">
+            <Package className="h-8 w-8 text-primary mb-2" />
+            <h3 className="text-sm font-medium">Mes réparations</h3>
+            <p className="text-xs text-gray-500 mt-1">Voir toutes les réparations</p>
+          </div>
+        </Card>
+        
+        <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/relay/profile')}>
+          <div className="flex flex-col items-center justify-center text-center">
+            <Settings className="h-8 w-8 text-primary mb-2" />
+            <h3 className="text-sm font-medium">Paramètres</h3>
+            <p className="text-xs text-gray-500 mt-1">Gérer mon compte</p>
+          </div>
+        </Card>
+      </div>
       
       {/* Barre de recherche et filtres */}
       <SearchAndFilters 
@@ -510,7 +575,11 @@ const RelayDashboard: React.FC = () => {
         activeTab={activeTab}
         stats={stats}
         onSearchChange={(e) => setSearchTerm(e.target.value)}
-        onTabChange={(tab) => setActiveTab(tab)}
+        onTabChange={(tab) => {
+          console.log(`Changement d'onglet vers: ${tab}`);
+          setActiveTab(tab);
+          // Les données seront rechargées automatiquement grâce à l'effet qui dépend de activeTab
+        }}
       />
       
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">

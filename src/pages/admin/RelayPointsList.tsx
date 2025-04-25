@@ -5,6 +5,7 @@ import Button from '../../components/ui/Button';
 import { relayPointService } from '../../services/relayPointService';
 import { Edit, MapPin, Plus, Trash } from 'lucide-react';
 import Layout from '../../components/layout/Layout';
+import { useAuth } from '../../context/AuthContext';
 
 // Type spécifique pour l'affichage des points relais
 type RelayPointDisplay = {
@@ -27,9 +28,11 @@ type RelayPointDisplay = {
 
 const RelayPointsList = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [relayPoints, setRelayPoints] = useState<RelayPointDisplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     loadRelayPoints();
@@ -38,8 +41,29 @@ const RelayPointsList = () => {
   const loadRelayPoints = async () => {
     setLoading(true);
     try {
-      const points = await relayPointService.getAllRelayPoints();
-      setRelayPoints(points as RelayPointDisplay[]);
+      if (!user) {
+        navigate('/login');
+        return;
+      }
+
+      // Si c'est un admin, charger tous les points relais
+      // Si c'est un point relais, charger uniquement ses propres informations
+      if (isAdmin) {
+        const points = await relayPointService.getAllRelayPoints();
+        setRelayPoints(points as RelayPointDisplay[]);
+      } else if (user.role === 'relayPoint') {
+        // Pour un point relais, ne charger que ses propres informations
+        const point = await relayPointService.getRelayPointById(user.id);
+        if (point) {
+          setRelayPoints([point as RelayPointDisplay]);
+        } else {
+          setError('Impossible de charger vos informations');
+        }
+      } else {
+        // Autre rôle non autorisé
+        setError('Vous n\'avez pas les droits pour accéder à cette page');
+        setTimeout(() => navigate('/dashboard'), 2000);
+      }
     } catch (err) {
       console.error('Erreur lors du chargement des points relais:', err);
       setError('Impossible de charger les points relais');
@@ -52,6 +76,7 @@ const RelayPointsList = () => {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer ce point relais ?')) {
       try {
         // Implémenter la suppression dans le service
+        console.log(`Tentative de suppression du point relais avec l'ID: ${id}`);
         // await relayPointService.deleteRelayPoint(id);
         alert('Fonctionnalité de suppression à implémenter');
         // Recharger la liste
@@ -97,15 +122,19 @@ const RelayPointsList = () => {
     <Layout>
       <div className="container mx-auto py-8">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold">Points Relais</h1>
-          <Button
-            variant="primary"
-            onClick={() => navigate('/admin/relay-points/new')}
-          >
-            <Plus className="h-5 w-5 mr-2" />
-            Ajouter un point relais
-          </Button>
+          <h1 className="text-2xl font-bold">{isAdmin ? 'Points Relais' : 'Mon Point Relais'}</h1>
+          {isAdmin && (
+            <Button
+              variant="primary"
+              onClick={() => navigate('/admin/relay-points/new')}
+            >
+              <Plus className="h-5 w-5 mr-2" />
+              Ajouter un point relais
+            </Button>
+          )}
         </div>
+        
+
 
         {error && (
           <div className="mb-4 p-4 bg-error/10 border border-error/20 rounded-lg text-error">
@@ -121,14 +150,16 @@ const RelayPointsList = () => {
           <Card>
             <Card.Content className="p-8 text-center text-gray-500">
               <p>Aucun point relais trouvé.</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => navigate('/admin/relay-points/new')}
-              >
-                <Plus className="h-5 w-5 mr-2" />
-                Ajouter votre premier point relais
-              </Button>
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => navigate('/admin/relay-points/new')}
+                >
+                  <Plus className="h-5 w-5 mr-2" />
+                  Ajouter votre premier point relais
+                </Button>
+              )}
             </Card.Content>
           </Card>
         ) : (
@@ -171,15 +202,17 @@ const RelayPointsList = () => {
                         <Edit className="h-4 w-4 mr-1" />
                         Modifier
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-error hover:bg-error/10"
-                        onClick={() => handleDelete(relayPoint.id)}
-                      >
-                        <Trash className="h-4 w-4 mr-1" />
-                        Supprimer
-                      </Button>
+                      {isAdmin && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-error hover:bg-error/10"
+                          onClick={() => handleDelete(relayPoint.id)}
+                        >
+                          <Trash className="h-4 w-4 mr-1" />
+                          Supprimer
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </Card.Content>

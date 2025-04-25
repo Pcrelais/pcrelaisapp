@@ -48,9 +48,14 @@ interface RepairDetail {
   notes?: string;
 }
 
-interface StatusOption {
+interface TechnicianOption {
   id: string;
   name: string;
+}
+
+interface StatusOption {
+  id: string;
+  code: string;
   label: string;
   description?: string;
   color?: string;
@@ -70,6 +75,8 @@ const RepairDetailPage: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [estimatedCost, setEstimatedCost] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [selectedTechnician, setSelectedTechnician] = useState<string>('');
+  const [technicianOptions, setTechnicianOptions] = useState<TechnicianOption[]>([]);
   const [fileUploadSuccess, setFileUploadSuccess] = useState(false);
   
   useEffect(() => {
@@ -80,52 +87,142 @@ const RepairDetailPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        // Récupérer les détails de la réparation
+        // Récupérer les détails de la réparation avec une approche plus robuste
         const { data: repairData, error: repairError } = await supabase
           .from('repair_requests')
-          .select(`
-            *,
-            status:repair_statuses(id, name, label),
-            client:profiles!client_id(id, first_name, last_name, email, phone_number),
-            technician:profiles!technician_id(id, first_name, last_name),
-            dropOffRelay:profiles!drop_off_relay_id(id, business_name),
-            pickupRelay:profiles!pickup_relay_id(id, business_name)
-          `)
+          .select('*')
           .eq('id', id)
-          .single();
+          .maybeSingle();
         
         if (repairError) throw repairError;
         
         if (!repairData) {
-          setError('Réparation non trouvée');
+          // Vérifier si la réparation existe dans repair_codes
+          const { data: repairCodeData, error: repairCodeError } = await supabase
+            .from('repair_codes')
+            .select('*')
+            .eq('id', id)
+            .maybeSingle();
+            
+          if (repairCodeError) throw repairCodeError;
+          
+          if (repairCodeData) {
+            setError('Cette réparation existe mais n\'a pas encore été complètement enregistrée. Veuillez déposer l\'appareil dans un point relais pour finaliser l\'enregistrement.');
+          } else {
+            setError('Réparation non trouvée');
+          }
           return;
         }
         
+        // Récupérer le statut
+        let statusData = null;
+        if (repairData.status_id) {
+          const { data: status, error: statusError } = await supabase
+            .from('repair_statuses')
+            .select('id, code, label')
+            .eq('id', repairData.status_id)
+            .maybeSingle();
+            
+          if (!statusError && status) {
+            statusData = status;
+          }
+        }
+        
+        // Récupérer les informations du client
+        let clientData = null;
+        if (repairData.client_id) {
+          const { data: client, error: clientError } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name, email, phone')
+            .eq('id', repairData.client_id)
+            .maybeSingle();
+            
+          if (!clientError && client) {
+            clientData = client;
+          }
+        }
+        
+        // Récupérer les informations du technicien
+        let technicianData = null;
+        if (repairData.technician_id) {
+          const { data: technician, error: technicianError } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name')
+            .eq('id', repairData.technician_id)
+            .maybeSingle();
+            
+          if (!technicianError && technician) {
+            technicianData = technician;
+          }
+        }
+        
+        // Récupérer les informations du point relais de dépôt
+        let dropOffRelayData = null;
+        if (repairData.drop_off_relay_id) {
+          const { data: dropOffRelay, error: dropOffRelayError } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name')
+            .eq('id', repairData.drop_off_relay_id)
+            .maybeSingle();
+            
+          if (!dropOffRelayError && dropOffRelay) {
+            dropOffRelayData = dropOffRelay;
+          }
+        }
+        
+        // Récupérer les informations du point relais de récupération
+        let pickupRelayData = null;
+        if (repairData.pickup_relay_id) {
+          const { data: pickupRelay, error: pickupRelayError } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name')
+            .eq('id', repairData.pickup_relay_id)
+            .maybeSingle();
+            
+          if (!pickupRelayError && pickupRelay) {
+            pickupRelayData = pickupRelay;
+          }
+        }
+        
+        // Combiner toutes les données
+        const enrichedRepairData = {
+          ...repairData,
+          status: statusData,
+          client: clientData,
+          technician: technicianData,
+          dropOffRelay: dropOffRelayData,
+          pickupRelay: pickupRelayData
+        };
+        
         // Formater les données pour l'affichage
         const formattedRepair: RepairDetail = {
-          id: repairData.id,
-          clientId: repairData.client_id,
-          clientName: repairData.client ? `${repairData.client.first_name} ${repairData.client.last_name}` : undefined,
-          clientEmail: repairData.client?.email,
-          clientPhone: repairData.client?.phone_number,
-          deviceType: repairData.device_type,
-          brand: repairData.brand,
-          model: repairData.model,
-          problemDescription: repairData.problem_description,
-          preDiagnosis: repairData.pre_diagnosis,
-          estimatedCost: repairData.estimated_cost,
-          statusId: repairData.status_id,
-          statusName: repairData.status?.name,
-          statusLabel: repairData.status?.label,
-          createdAt: repairData.created_at,
-          updatedAt: repairData.updated_at,
-          dropOffRelayId: repairData.drop_off_relay_id,
-          dropOffRelayName: repairData.dropOffRelay?.business_name,
-          pickupRelayId: repairData.pickup_relay_id,
-          pickupRelayName: repairData.pickupRelay?.business_name,
-          appointmentDate: repairData.appointment_date,
-          technicianId: repairData.technician_id,
-          technicianName: repairData.technician ? `${repairData.technician.first_name} ${repairData.technician.last_name}` : undefined,
+          id: enrichedRepairData.id,
+          clientId: enrichedRepairData.client_id,
+          clientName: enrichedRepairData.client_first_name && enrichedRepairData.client_last_name 
+            ? `${enrichedRepairData.client_first_name} ${enrichedRepairData.client_last_name}`.trim() 
+            : (enrichedRepairData.client 
+                ? `${enrichedRepairData.client.first_name || ''} ${enrichedRepairData.client.last_name || ''}`.trim() 
+                : undefined),
+          clientEmail: enrichedRepairData.client?.email,
+          clientPhone: enrichedRepairData.client?.phone,
+          deviceType: enrichedRepairData.device_type,
+          brand: enrichedRepairData.brand,
+          model: enrichedRepairData.model,
+          problemDescription: enrichedRepairData.problem_description,
+          preDiagnosis: enrichedRepairData.pre_diagnosis,
+          estimatedCost: enrichedRepairData.estimated_cost,
+          statusId: enrichedRepairData.status_id,
+          statusName: enrichedRepairData.status?.code,
+          statusLabel: enrichedRepairData.status?.label,
+          createdAt: enrichedRepairData.created_at,
+          updatedAt: enrichedRepairData.updated_at,
+          dropOffRelayId: enrichedRepairData.drop_off_relay_id,
+          dropOffRelayName: enrichedRepairData.dropOffRelay ? `${enrichedRepairData.dropOffRelay.first_name || ''} ${enrichedRepairData.dropOffRelay.last_name || ''}`.trim() : undefined,
+          pickupRelayId: enrichedRepairData.pickup_relay_id,
+          pickupRelayName: enrichedRepairData.pickupRelay ? `${enrichedRepairData.pickupRelay.first_name || ''} ${enrichedRepairData.pickupRelay.last_name || ''}`.trim() : undefined,
+          appointmentDate: enrichedRepairData.appointment_date,
+          technicianId: enrichedRepairData.technician_id,
+          technicianName: enrichedRepairData.technician ? `${enrichedRepairData.technician.first_name || ''} ${enrichedRepairData.technician.last_name || ''}`.trim() : undefined,
           notes: repairData.notes
         };
         
@@ -133,16 +230,42 @@ const RepairDetailPage: React.FC = () => {
         setNotes(formattedRepair.notes || '');
         setEstimatedCost(formattedRepair.estimatedCost?.toString() || '');
         setSelectedStatus(formattedRepair.statusId.toString());
+        setSelectedTechnician(formattedRepair.technicianId || '');
         
         // Récupérer les options de statut
-        const { data: statusData, error: statusError } = await supabase
+        const { data: statusOptions, error: statusOptionsError } = await supabase
           .from('repair_statuses')
           .select('*')
           .order('id');
         
-        if (statusError) throw statusError;
+        if (statusOptionsError) throw statusOptionsError;
         
-        setStatusOptions(statusData || []);
+        // Convertir les données en StatusOption[]
+        const formattedStatusOptions: StatusOption[] = (statusOptions || []).map(status => ({
+          id: status.id,
+          code: status.code,
+          label: status.label
+        }));
+        
+        setStatusOptions(formattedStatusOptions);
+        
+        // Récupérer la liste des techniciens (uniquement pour les administrateurs)
+        if (user.role === 'admin') {
+          const { data: technicians, error: techniciansError } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name')
+            .eq('role', 'technician')
+            .order('last_name');
+            
+          if (!techniciansError && technicians) {
+            const formattedTechnicianOptions: TechnicianOption[] = technicians.map(tech => ({
+              id: tech.id,
+              name: `${tech.first_name || ''} ${tech.last_name || ''}`.trim()
+            }));
+            
+            setTechnicianOptions(formattedTechnicianOptions);
+          }
+        }
         
       } catch (err) {
         console.error('Erreur lors du chargement des détails de la réparation:', err);
@@ -196,6 +319,12 @@ const RepairDetailPage: React.FC = () => {
   const handleUpdateRepair = async () => {
     if (!repair || !user) return;
     
+    // Vérifier que l'utilisateur a les droits pour mettre à jour la réparation
+    if (user.role !== 'technician' && user.role !== 'admin') {
+      setError('Vous n\'avez pas les droits nécessaires pour modifier cette réparation.');
+      return;
+    }
+    
     try {
       setUpdating(true);
       setUpdateSuccess(false);
@@ -210,6 +339,11 @@ const RepairDetailPage: React.FC = () => {
       // Ajouter le coût estimé si c'est un technicien
       if (user.role === 'technician' && estimatedCost) {
         updateData.estimated_cost = parseFloat(estimatedCost);
+      }
+      
+      // Ajouter l'assignation du technicien si c'est un administrateur
+      if (user.role === 'admin' && selectedTechnician) {
+        updateData.technician_id = selectedTechnician || null;
       }
       
       // Mettre à jour la réparation
@@ -398,8 +532,8 @@ const RepairDetailPage: React.FC = () => {
         </Card>
       </div>
       
-      {/* Section pour les techniciens et les points relais */}
-      {(user?.role === 'technician' || user?.role === 'relayPoint') && (
+      {/* Section pour les techniciens, administrateurs et points relais (en lecture seule pour les points relais) */}
+      {(user?.role === 'technician' || user?.role === 'admin' || user?.role === 'relayPoint') && (
         <Card className="mb-6">
           <Card.Header>
             <Card.Title>Gestion de la réparation</Card.Title>
@@ -410,18 +544,44 @@ const RepairDetailPage: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Statut de la réparation
                 </label>
-                <select
-                  className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                >
-                  {statusOptions.map((status) => (
-                    <option key={status.id} value={status.id}>
-                      {status.label}
-                    </option>
-                  ))}
-                </select>
+                {user?.role === 'relayPoint' ? (
+                  <div className="p-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700">
+                    {statusOptions.find(s => s.id === repair.statusId)?.label || 'Non défini'}
+                  </div>
+                ) : (
+                  <select
+                    className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
+                  >
+                    {statusOptions.map((status) => (
+                      <option key={status.id} value={status.id}>
+                        {status.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
+              
+              {user?.role === 'admin' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Assigner un technicien
+                  </label>
+                  <select
+                    className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={selectedTechnician}
+                    onChange={(e) => setSelectedTechnician(e.target.value)}
+                  >
+                    <option value="">-- Sélectionner un technicien --</option>
+                    {technicianOptions.map((tech) => (
+                      <option key={tech.id} value={tech.id}>
+                        {tech.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               
               {user?.role === 'technician' && (
                 <div>
@@ -443,13 +603,19 @@ const RepairDetailPage: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Notes
                 </label>
-                <textarea
-                  className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={4}
-                  placeholder="Ajouter des notes sur la réparation..."
-                ></textarea>
+                {user?.role === 'relayPoint' ? (
+                  <div className="p-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700 min-h-[100px] whitespace-pre-line">
+                    {repair.notes || 'Aucune note disponible'}
+                  </div>
+                ) : (
+                  <textarea
+                    className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={4}
+                    placeholder="Ajouter des notes sur la réparation..."
+                  ></textarea>
+                )}
               </div>
             </div>
             
@@ -505,13 +671,15 @@ const RepairDetailPage: React.FC = () => {
                 <MessageCircle className="h-5 w-5 mr-2" />
                 Discuter avec le client
               </Button>
-              <Button
-                variant="primary"
-                onClick={handleUpdateRepair}
-                disabled={updating}
-              >
-                {updating ? 'Mise à jour...' : 'Mettre à jour la réparation'}
-              </Button>
+              {user?.role !== 'relayPoint' && (
+                <Button
+                  variant="primary"
+                  onClick={handleUpdateRepair}
+                  disabled={updating}
+                >
+                  {updating ? 'Mise à jour...' : 'Mettre à jour la réparation'}
+                </Button>
+              )}
             </div>
           </Card.Content>
         </Card>

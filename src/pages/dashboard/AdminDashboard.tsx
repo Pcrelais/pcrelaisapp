@@ -26,7 +26,7 @@ const AdminDashboard: React.FC = () => {
       try {
         // Récupérer le nombre total d'utilisateurs
         const { count: usersCount } = await supabase
-          .from('users')
+          .from('profiles')
           .select('*', { count: 'exact', head: true });
         
         // Récupérer le nombre total de réparations
@@ -35,21 +35,42 @@ const AdminDashboard: React.FC = () => {
           .select('*', { count: 'exact', head: true });
         
         // Récupérer le nombre de points relais
-        const { count: relayPointsCount } = await supabase
-          .from('relay_points')
-          .select('*', { count: 'exact', head: true });
+        // Vérifier si le rôle est 'relay' ou 'relayPoint' (pour la compatibilité avec les données existantes)
+        const { data: relayPoints, error: relayError } = await supabase
+          .from('profiles')
+          .select('id')
+          .or('role.eq.relay,role.eq.relayPoint');
+          
+        const relayPointsCount = relayPoints ? relayPoints.length : 0;
+        
+        if (relayError) {
+          console.error('Erreur lors de la récupération des points relais:', relayError);
+        }
         
         // Récupérer le nombre de techniciens
         const { count: techniciansCount } = await supabase
-          .from('users')
+          .from('profiles')
           .select('*', { count: 'exact', head: true })
           .eq('role', 'technician');
         
         // Récupérer le nombre de réparations en attente
-        const { count: pendingRepairsCount } = await supabase
-          .from('repair_requests')
-          .select('*', { count: 'exact', head: true })
-          .eq('status_id', 'pending');
+        // Récupérer tous les statuts qui correspondent à des réparations en attente
+        const { data: pendingStatuses } = await supabase
+          .from('repair_statuses')
+          .select('id')
+          .in('code', ['SUBMITTED', 'RECEIVED', 'TO_DIAGNOSE']);
+          
+        // Si nous avons des statuts en attente, utiliser leurs IDs pour filtrer les réparations
+        let pendingRepairsCount = 0;
+        if (pendingStatuses && pendingStatuses.length > 0) {
+          const pendingStatusIds = pendingStatuses.map(status => status.id);
+          const { count: count } = await supabase
+            .from('repair_requests')
+            .select('*', { count: 'exact', head: true })
+            .in('status_id', pendingStatusIds);
+          
+          pendingRepairsCount = count || 0;
+        }
         
         setStats({
           totalUsers: usersCount || 0,

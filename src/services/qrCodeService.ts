@@ -174,13 +174,21 @@ export const qrCodeService = {
   
   // Marquer un code comme utilisé
   async markCodeAsUsed(repairId: string, repairCode: string): Promise<void> {
-    const { error } = await supabase
-      .from('repair_codes')
-      .update({ is_used: true, used_at: new Date().toISOString() })
-      .eq('repair_id', repairId)
-      .eq('code', repairCode);
-    
-    if (error) {
+    try {
+      // Vérifier si la colonne used_at existe
+      const { error } = await supabase
+        .from('repair_codes')
+        .update({ is_used: true }) // Supprimer used_at car la colonne n'existe pas
+        .eq('repair_id', repairId)
+        .eq('code', repairCode);
+      
+      if (error) {
+        console.error('Erreur lors du marquage du code comme utilisé:', error);
+        throw error;
+      }
+      
+      console.log('Code de réparation marqué comme utilisé avec succès');
+    } catch (error) {
       console.error('Erreur lors du marquage du code comme utilisé:', error);
       throw error;
     }

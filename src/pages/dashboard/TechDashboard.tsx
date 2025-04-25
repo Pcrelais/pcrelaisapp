@@ -63,6 +63,11 @@ const TechDashboard: React.FC = () => {
         // Fetch repair requests assigned to the technician
         const repairs = await technicianService.getTechnicianRepairs(user.id);
         
+        // Débogage : afficher les réparations et leurs codes de statut
+        console.log('Toutes les réparations:', repairs);
+        console.log('Codes de statut disponibles:', [...new Set(repairs.map(r => r.statusCode))]);
+        console.log('Réparations à diagnostiquer:', repairs.filter(r => r.statusCode === 'WAITING_DIAGNOSTIC'));
+        
         // Process data for dashboard
         const today = new Date().toISOString().split('T')[0];
         
@@ -70,22 +75,30 @@ const TechDashboard: React.FC = () => {
         const todaysRepairsData = repairs.filter(repair => {
           // Vérifier si la réparation est d'aujourd'hui ou en cours
           const isToday = repair.createdAt.split('T')[0] === today;
-          const isInProgress = String(repair.statusId) === '2';
-          return isToday || isInProgress;
+          const isInProgress = repair.statusCode === 'IN_PROGRESS' || repair.statusCode === 'PICKED_UP_BY_TECHNICIAN';
+          const needsDiagnostic = repair.statusCode === 'WAITING_DIAGNOSTIC';
+          return isToday || isInProgress || needsDiagnostic;
         });
         
         // Filter completed repairs
         const completedRepairsData = repairs.filter(repair => {
           // Vérifier si la réparation est terminée
-          const isCompleted = String(repair.statusId) === '3';
+          const isCompleted = repair.statusCode === 'COMPLETED' || repair.statusCode === 'RETURNED_TO_RELAY';
           return isCompleted;
         }).slice(0, 5); // Show only 5 most recent
         
         // Calculate stats
         const statsData = {
           totalRepairs: repairs.length,
-          inProgressRepairs: repairs.filter(repair => String(repair.statusId) === '2').length,
-          completedRepairs: repairs.filter(repair => String(repair.statusId) === '3').length,
+          inProgressRepairs: repairs.filter(repair => 
+            repair.statusCode === 'IN_PROGRESS' || 
+            repair.statusCode === 'PICKED_UP_BY_TECHNICIAN' || 
+            repair.statusCode === 'WAITING_DIAGNOSTIC'
+          ).length,
+          completedRepairs: repairs.filter(repair => 
+            repair.statusCode === 'COMPLETED' || 
+            repair.statusCode === 'RETURNED_TO_RELAY'
+          ).length,
           averageCompletionTime: calculateAverageCompletionTime(repairs),
         };
         

@@ -1,5 +1,34 @@
 import { supabase } from '../lib/supabaseConfig';
-import { RepairRequest, RepairStatus } from '../types';
+
+// Définir les interfaces localement pour éviter les problèmes d'importation
+interface RepairStatus {
+  id: string;
+  name: 'pending' | 'received' | 'diagnosed' | 'inRepair' | 'repaired' | 'readyForPickup' | 'completed' | 'cancelled';
+  label: string;
+  description: string;
+  color: string;
+  code?: string; // Ajouté pour la compatibilité avec le code existant
+}
+
+interface RepairRequest {
+  id: string;
+  clientId: string;
+  deviceType: string;
+  brand: string;
+  model: string;
+  problemDescription: string;
+  statusId: string;
+  preDiagnosis?: string;
+  estimatedCost?: number;
+  createdAt: string;
+  updatedAt: string;
+  dropOffRelayId?: string;
+  pickupRelayId?: string;
+  appointmentDate?: string;
+  technicianId?: string;
+  notes?: string;
+  relayPointId?: string; // Ajouté pour la compatibilité avec le code existant
+}
 
 // Convertir les noms de champs de snake_case (DB) vers camelCase (Frontend)
 const mapRepairRequestFromDB = (dbRepair: any): RepairRequest => {
@@ -78,28 +107,72 @@ export const repairService = {
   
   // Récupérer une demande de réparation par son ID
   async getRepairById(repairId: string): Promise<RepairRequest | null> {
-    const { data, error } = await supabase
-      .from('repair_requests')
-      .select('*')
-      .eq('id', repairId)
-      .single();
-    
-    if (error) {
-      console.error(`Erreur lors de la récupération de la réparation ${repairId}:`, error);
-      throw error;
+    try {
+      console.log(`Tentative de récupération de la réparation ${repairId}`);
+      
+      const { data, error } = await supabase
+        .from('repair_requests')
+        .select('*')
+        .eq('id', repairId)
+        .maybeSingle(); // Utiliser maybeSingle au lieu de single pour éviter l'erreur
+      
+      if (error) {
+        console.error(`Erreur lors de la récupération de la réparation ${repairId}:`, error);
+        // Ne pas lancer d'erreur, retourner null
+        return null;
+      }
+      
+      if (!data) {
+        console.log(`Aucune réparation trouvée avec l'ID ${repairId}`);
+        return null;
+      }
+      
+      console.log(`Réparation ${repairId} récupérée avec succès`);
+      return mapRepairRequestFromDB(data);
+    } catch (error) {
+      console.error(`Erreur inattendue lors de la récupération de la réparation ${repairId}:`, error);
+      return null; // Retourner null plutôt que de lancer une erreur
     }
-    
-    return data ? mapRepairRequestFromDB(data) : null;
   },
   
   // Créer une nouvelle demande de réparation
   async createRepair(repair: Omit<RepairRequest, 'id' | 'createdAt' | 'updatedAt'>): Promise<RepairRequest> {
     const now = new Date().toISOString();
+    
+    // Attribuer automatiquement la réparation au technicien spécifié
+    const technicianId = '58644658-16d8-41f8-8aab-23b396987c21';
+    console.log('Attribution automatique de la réparation au technicien:', technicianId);
+    
+    // Récupérer le statut 'WAITING_DIAGNOSTIC'
+    let waitingDiagnosticStatusId;
+    try {
+      const { data: statusData, error: statusError } = await supabase
+        .from('repair_statuses')
+        .select('id')
+        .eq('code', 'WAITING_DIAGNOSTIC')
+        .single();
+      
+      if (statusError || !statusData) {
+        console.error('Erreur lors de la récupération du statut WAITING_DIAGNOSTIC:', statusError);
+        // Utiliser le statut fourni dans repair si le statut WAITING_DIAGNOSTIC n'est pas trouvé
+        waitingDiagnosticStatusId = repair.statusId;
+      } else {
+        waitingDiagnosticStatusId = statusData.id;
+      }
+    } catch (err) {
+      console.error('Exception lors de la récupération du statut:', err);
+      waitingDiagnosticStatusId = repair.statusId;
+    }
+    
     const newRepair = {
       ...repair,
+      technicianId: technicianId, // Attribuer au technicien spécifié
+      statusId: waitingDiagnosticStatusId, // Mettre le statut à 'WAITING_DIAGNOSTIC'
       created_at: now,
       updated_at: now,
     };
+    
+    console.log('Création d\'une nouvelle réparation avec les données:', mapRepairRequestToDB(newRepair));
     
     const { data, error } = await supabase
       .from('repair_requests')
@@ -112,29 +185,57 @@ export const repairService = {
       throw error;
     }
     
+    console.log('Réparation créée avec succès:', data);
     return mapRepairRequestFromDB(data);
   },
   
   // Mettre à jour une demande de réparation
   async updateRepair(repairId: string, updates: Partial<RepairRequest>): Promise<RepairRequest> {
-    const updatedRepair = {
-      ...updates,
-      updated_at: new Date().toISOString(),
-    };
-    
-    const { data, error } = await supabase
-      .from('repair_requests')
-      .update(mapRepairRequestToDB(updatedRepair))
-      .eq('id', repairId)
-      .select()
-      .single();
-    
-    if (error) {
+    try {
+      // Vérifier d'abord si la réparation existe
+      const { data: existingRepair, error: checkError } = await supabase
+        .from('repair_requests')
+        .select('id')
+        .eq('id', repairId)
+        .maybeSingle();
+      
+      if (checkError) {
+        console.error(`Erreur lors de la vérification de la réparation ${repairId}:`, checkError);
+        throw checkError;
+      }
+      
+      if (!existingRepair) {
+        console.error(`La réparation avec l'ID ${repairId} n'existe pas`);
+        throw new Error(`La réparation avec l'ID ${repairId} n'existe pas`);
+      }
+      
+      const updatedRepair = {
+        ...updates,
+        updated_at: new Date().toISOString(),
+      };
+      
+      const { data, error } = await supabase
+        .from('repair_requests')
+        .update(mapRepairRequestToDB(updatedRepair))
+        .eq('id', repairId)
+        .select()
+        .maybeSingle(); // Utiliser maybeSingle au lieu de single pour éviter l'erreur si aucune ligne n'est retournée
+      
+      if (error) {
+        console.error(`Erreur lors de la mise à jour de la réparation ${repairId}:`, error);
+        throw error;
+      }
+      
+      if (!data) {
+        console.error(`Aucune donnée retournée après la mise à jour de la réparation ${repairId}`);
+        throw new Error(`Aucune donnée retournée après la mise à jour de la réparation ${repairId}`);
+      }
+      
+      return mapRepairRequestFromDB(data);
+    } catch (error) {
       console.error(`Erreur lors de la mise à jour de la réparation ${repairId}:`, error);
       throw error;
     }
-    
-    return mapRepairRequestFromDB(data);
   },
   
   // Récupérer tous les statuts de réparation
@@ -152,25 +253,105 @@ export const repairService = {
     return (data || []).map(mapRepairStatusFromDB);
   },
   
-  // Mettre à jour le statut d'une réparation par son nom de statut
-  async updateRepairStatus(repairId: string, statusName: string): Promise<RepairRequest> {
+  // Mettre à jour le statut d'une réparation par son code de statut
+  async updateRepairStatus(repairId: string, statusCode: string): Promise<RepairRequest> {
     try {
-      // D'abord, récupérer l'ID du statut à partir de son nom
+      console.log(`Tentative de mise à jour du statut de la réparation ${repairId} vers ${statusCode}`);
+      
+      // 1. Récupérer l'ID du statut à partir de son code
+      let statusId: string | null = null;
+      
+      // Essayer d'abord avec le champ 'code'
       const { data: statusData, error: statusError } = await supabase
         .from('repair_statuses')
         .select('id')
-        .ilike('name', statusName)
-        .single();
+        .eq('code', statusCode) // Utiliser eq au lieu de ilike pour une correspondance exacte
+        .maybeSingle();
       
-      if (statusError || !statusData) {
-        console.error(`Erreur lors de la récupération du statut ${statusName}:`, statusError);
-        throw new Error(`Statut de réparation '${statusName}' introuvable`);
+      if (!statusError && statusData) {
+        statusId = statusData.id;
+        console.log(`Statut trouvé par code: ${statusId}`);
+      } else {
+        // Si ça ne fonctionne pas, essayer avec le champ 'label'
+        console.log(`Recherche du statut par label: ${statusCode}`);
+        const { data: statusByLabel, error: labelError } = await supabase
+          .from('repair_statuses')
+          .select('id')
+          .eq('label', statusCode) // Utiliser eq au lieu de ilike pour une correspondance exacte
+          .maybeSingle();
+          
+        if (!labelError && statusByLabel) {
+          statusId = statusByLabel.id;
+          console.log(`Statut trouvé par label: ${statusId}`);
+        }
       }
       
-      // Ensuite, mettre à jour la réparation avec le nouvel ID de statut
-      return await this.updateRepair(repairId, {
-        statusId: statusData.id,
-      });
+      if (!statusId) {
+        // En dernier recours, essayer avec ilike pour une recherche moins stricte
+        const { data: statusByIlike, error: ilikeError } = await supabase
+          .from('repair_statuses')
+          .select('id')
+          .or(`code.ilike.%${statusCode}%,label.ilike.%${statusCode}%`)
+          .maybeSingle();
+          
+        if (!ilikeError && statusByIlike) {
+          statusId = statusByIlike.id;
+          console.log(`Statut trouvé par recherche approximative: ${statusId}`);
+        } else {
+          console.error(`Statut de réparation '${statusCode}' introuvable après plusieurs tentatives`);
+          throw new Error(`Statut de réparation '${statusCode}' introuvable`);
+        }
+      }
+      
+      // 2. Mettre à jour la réparation avec le statut trouvé
+      console.log(`Mise à jour de la réparation ${repairId} avec le statut ${statusId}`);
+      
+      const { error: updateError } = await supabase
+        .from('repair_requests')
+        .update({ 
+          status_id: statusId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', repairId);
+      
+      if (updateError) {
+        console.error(`Erreur lors de la mise à jour du statut:`, updateError);
+        
+        // Si l'erreur indique que la réparation n'existe pas, vérifier son existence
+        const { data: checkRepair } = await supabase
+          .from('repair_requests')
+          .select('id')
+          .eq('id', repairId)
+          .maybeSingle();
+        
+        if (!checkRepair) {
+          throw new Error(`La réparation avec l'ID ${repairId} n'existe pas dans la base de données`);
+        } else {
+          throw new Error(`Erreur lors de la mise à jour: ${updateError.message}`);
+        }
+      }
+      
+      // 3. Récupérer la réparation mise à jour
+      const updatedRepair = await this.getRepairById(repairId);
+      
+      // Même si nous ne pouvons pas récupérer la réparation, la mise à jour a réussi
+      // Créer un objet de réparation minimal pour le retour
+      if (!updatedRepair) {
+        console.log(`La réparation ${repairId} a été mise à jour mais ne peut pas être récupérée`);
+        
+        // Créer un objet minimal avec les informations que nous avons
+        const minimalRepair = {
+          id: repairId,
+          statusId: statusId,
+          updatedAt: new Date().toISOString()
+        } as unknown as RepairRequest;
+        
+        console.log(`Statut de la réparation ${repairId} mis à jour avec succès vers ${statusCode}`);
+        return minimalRepair;
+      }
+      
+      console.log(`Statut de la réparation ${repairId} mis à jour avec succès vers ${statusCode}`);
+      return updatedRepair as RepairRequest;
     } catch (error) {
       console.error(`Erreur lors de la mise à jour du statut de la réparation ${repairId}:`, error);
       throw error;
@@ -182,7 +363,7 @@ export const repairService = {
     const { data, error } = await supabase
       .from('repair_requests')
       .select('*')
-      .or(`drop_off_relay_id.eq.${relayId},pickup_relay_id.eq.${relayId}`)
+      .or(`drop_off_relay_id.eq.${relayId},pickup_relay_id.eq.${relayId},relay_point_id.eq.${relayId}`)
       .order('updated_at', { ascending: false });
     
     if (error) {

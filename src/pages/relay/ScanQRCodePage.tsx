@@ -7,7 +7,7 @@ import Button from '../../components/ui/Button';
 import { AlertCircle, CheckCircle, QrCode } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { qrCodeService } from '../../services/qrCodeService';
-import { repairService } from '../../services/repairService';
+import { relayOperationService } from '../../services/relayOperationService';
 import Input from '../../components/ui/Input';
 
 const ScanQRCodePage: React.FC = () => {
@@ -59,8 +59,9 @@ const ScanQRCodePage: React.FC = () => {
         const repairCode = decryptedData?.code || '';
         await qrCodeService.markCodeAsUsed(result.repairId, repairCode);
         
-        // Mettre à jour le statut de la réparation
-        await repairService.updateRepairStatus(result.repairId, 'received');
+        // Mettre à jour le statut de la réparation et associer le point relais
+        await relayOperationService.processDropOff(result.repairId, user.id);
+        console.log(`Dépôt traité pour la réparation ${result.repairId} par le point relais ${user.id}`);
         
         setSuccess({
           repairId: result.repairId,
@@ -93,8 +94,9 @@ const ScanQRCodePage: React.FC = () => {
         // Marquer le code comme utilisé
         await qrCodeService.markCodeAsUsed(result.repairId, manualCode.trim());
         
-        // Mettre à jour le statut de la réparation
-        await repairService.updateRepairStatus(result.repairId, 'received');
+        // Mettre à jour le statut de la réparation et associer le point relais
+        await relayOperationService.processDropOff(result.repairId, user.id);
+        console.log(`Dépôt traité pour la réparation ${result.repairId} par le point relais ${user.id}`);
         
         setSuccess({
           repairId: result.repairId,
@@ -190,7 +192,7 @@ const ScanQRCodePage: React.FC = () => {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => navigate(`/relay/repairs/${success.repairId}`)}
+                      onClick={() => navigate(`/repair/${success.repairId}`)}
                     >
                       Voir les détails
                     </Button>

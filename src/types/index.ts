@@ -30,7 +30,12 @@ export interface RelayPoint {
     latitude: number;
     longitude: number;
   };
-  commission: number;
+  // Taux de commission pour les services (réparations)
+  serviceCommissionRate: number;
+  // Taux de commission pour les produits (ventes)
+  productCommissionRate: number;
+  // Pour la rétrocompatibilité
+  commission?: number;
 }
 
 export interface Technician extends User {
@@ -40,10 +45,11 @@ export interface Technician extends User {
 
 export interface RepairStatus {
   id: string;
-  name: 'pending' | 'received' | 'diagnosed' | 'inRepair' | 'repaired' | 'readyForPickup' | 'completed' | 'cancelled';
+  name: 'pending' | 'received' | 'diagnosed' | 'inRepair' | 'repaired' | 'readyForPickup' | 'completed' | 'cancelled' | 'waitingForTechnician' | 'pickedUpByTechnician' | 'waitingForQuote' | 'quoteProvided' | 'quoteAccepted' | 'quoteRejected' | 'inPayment' | 'paid' | 'returnedToRelay';
   label: string;
   description: string;
   color: string;
+  code?: string; // Code unique pour le statut (ex: SUBMITTED, RECEIVED, etc.)
 }
 
 export interface RepairRequest {
@@ -85,4 +91,16 @@ export interface Notification {
   isRead: boolean;
   timestamp: string;
   link?: string; // Lien pour la navigation vers une page spécifique
+}
+
+export interface Commission {
+  id: string;
+  relayPointId: string;
+  repairId?: string; // Pour les commissions liées à une réparation
+  productId?: string; // Pour les commissions liées à une vente de produit
+  amount: number; // Montant de la commission
+  type: 'service' | 'product'; // Type de commission
+  status: 'pending' | 'paid' | 'cancelled'; // Statut de la commission
+  createdAt: string;
+  paidAt?: string; // Date de paiement de la commission
 }

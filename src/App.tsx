@@ -12,7 +12,16 @@ import NotificationsPage from './pages/NotificationsPage';
 import ProfilePage from './pages/ProfilePage';
 import RelayPointsList from './pages/admin/RelayPointsList';
 import RelayPointForm from './pages/admin/RelayPointForm';
+import TechniciansPage from './pages/admin/TechniciansPage';
+import TechnicianEditForm from './pages/admin/TechnicianEditForm';
+import UsersPage from './pages/admin/UsersPage';
+import SettingsPage from './pages/admin/SettingsPage';
+import ReportsPage from './pages/admin/ReportsPage';
 import ScanQRCodePage from './pages/relay/ScanQRCodePage';
+import RelayProfilePage from './pages/relay/RelayProfilePage';
+import TechnicianPickupPage from './pages/technician/TechnicianPickupPage';
+import TechnicianDiagnosticPage from './pages/technician/TechnicianDiagnosticPage';
+import RepairsListPage from './pages/repair/RepairsListPage';
 
 // Protected route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -99,6 +108,32 @@ function App() {
               </ProtectedRoute>
             } 
           />
+          <Route 
+            path="/relay/profile" 
+            element={
+              <ProtectedRoute>
+                <RelayProfilePage />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Routes pour les techniciens */}
+          <Route 
+            path="/technician/pickup" 
+            element={
+              <ProtectedRoute>
+                <TechnicianPickupPage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/technician/repair/:repairId" 
+            element={
+              <ProtectedRoute>
+                <TechnicianDiagnosticPage />
+              </ProtectedRoute>
+            } 
+          />
           
           {/* Routes pour la gestion des points relais */}
           <Route 
@@ -122,6 +157,64 @@ function App() {
             element={
               <ProtectedRoute>
                 <RelayPointForm />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Routes pour la gestion des techniciens */}
+          <Route 
+            path="/admin/technicians" 
+            element={
+              <ProtectedRoute>
+                <TechniciansPage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/admin/technicians/edit/:id" 
+            element={
+              <ProtectedRoute>
+                <TechnicianEditForm />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Routes pour la gestion des utilisateurs */}
+          <Route 
+            path="/admin/users" 
+            element={
+              <ProtectedRoute>
+                <UsersPage />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Routes pour les paramètres du système */}
+          <Route 
+            path="/admin/settings" 
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Routes pour les rapports et statistiques */}
+          <Route 
+            path="/admin/reports" 
+            element={
+              <ProtectedRoute>
+                <ReportsPage />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Route pour la gestion des réparations */}
+          <Route 
+            path="/admin/repairs" 
+            element={
+              <ProtectedRoute>
+                <RepairsListPage />
               </ProtectedRoute>
             } 
           />
