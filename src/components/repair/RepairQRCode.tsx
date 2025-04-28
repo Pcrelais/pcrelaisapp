@@ -142,15 +142,9 @@ const RepairQRCode: React.FC<RepairQRCodeProps> = ({
         <div className="flex justify-center mb-4">
           <QRCodeSVG 
             value={qrData} 
-            size={200}
+            size={300}
             level="H"
             includeMargin={true}
-            imageSettings={{
-              src: '/logo.png',
-              height: 40,
-              width: 40,
-              excavate: true,
-            }}
           />
         </div>
         

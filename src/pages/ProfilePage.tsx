@@ -26,7 +26,7 @@ const ProfilePage: React.FC = () => {
     firstName: '',
     lastName: '',
     email: '',
-    phoneNumber: '',
+    phone: '',
     // Champs pour les points relais
     relayName: '',
     address: '',
@@ -45,19 +45,28 @@ const ProfilePage: React.FC = () => {
   });
   
   useEffect(() => {
-    if (user) {
-      setFormData(prev => ({
-        ...prev,
-        firstName: user.firstName || '',
-        lastName: user.lastName || '',
-        email: user.email || '',
-        phoneNumber: user.phoneNumber || '',
-      }));
-      
-      // Si l'utilisateur est un point relais, récupérer les informations supplémentaires
-      if (user.role === 'relayPoint') {
-        loadRelayPointData(user.id);
+    const fetchProfile = async () => {
+      if (user?.id) {
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, email, phone')
+          .eq('id', user.id)
+          .single();
+        if (!error && profile) {
+          setFormData(prev => ({
+            ...prev,
+            firstName: profile.first_name || '',
+            lastName: profile.last_name || '',
+            email: profile.email || user.email || '',
+            phone: profile.phone || '',
+          }));
+        }
       }
+    };
+    fetchProfile();
+    // Si l'utilisateur est un point relais, récupérer les informations supplémentaires
+    if (user && user.role === 'relayPoint') {
+      loadRelayPointData(user.id);
     }
   }, [user]);
   
@@ -134,8 +143,7 @@ const ProfilePage: React.FC = () => {
         .update({
           first_name: formData.firstName,
           last_name: formData.lastName,
-          phone: formData.phoneNumber,
-          // Ne pas mettre à jour l'email ici car cela nécessite une vérification
+          phone: formData.phone,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id);
@@ -287,14 +295,14 @@ const ProfilePage: React.FC = () => {
                 </div>
                 
                 <div className="mt-4">
-                  <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
                     Numéro de téléphone
                   </label>
                   <input
                     type="tel"
-                    id="phoneNumber"
-                    name="phoneNumber"
-                    value={formData.phoneNumber}
+                    id="phone"
+                    name="phone"
+                    value={formData.phone}
                     onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary focus:border-primary"
                   />

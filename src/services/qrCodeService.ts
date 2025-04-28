@@ -65,7 +65,7 @@ export const qrCodeService = {
   },
   
   // Valider un QR code scanné
-  async validateQRCode(encryptedData: string, relayPointId: string): Promise<{ valid: boolean, repairId?: string, message?: string }> {
+  async validateQRCode(encryptedData: string, relayPointId: string): Promise<{ valid: boolean, repairId?: string, clientId?: string, repairCode?: string, message?: string }> {
     try {
       // Déchiffrer les données
       const secretKey = import.meta.env.VITE_QR_SECRET_KEY || 'PCRelais-SecretKey-2025';
@@ -113,7 +113,9 @@ export const qrCodeService = {
       
       return { 
         valid: true, 
-        repairId: decryptedData.repairId 
+        repairId: decryptedData.repairId,
+        clientId: decryptedData.clientId,
+        repairCode: decryptedData.code
       };
     } catch (error) {
       console.error('Erreur lors de la validation du QR code:', error);

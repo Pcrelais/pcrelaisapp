@@ -8,6 +8,19 @@ if (!GOOGLE_MAPS_API_KEY) {
   console.error('La clé API Google Maps n\'est pas définie dans les variables d\'environnement');
 }
 
+// MIGRATION GOOGLE MAPS 2025 : utilisation exclusive du web component <place-autocomplete>
+// Voir : https://developers.google.com/maps/documentation/javascript/places-migration-overview
+// Ce composant n'utilise plus l'API JS classique Autocomplete, conformément à la doc Google 2025.
+
+// Déclaration de type personnalisée pour le web component Google PlaceAutocompleteElement
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'place-autocomplete': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
+    }
+  }
+}
+
 // Définition des props du composant
 interface GooglePlacesAutocompleteProps {
   label?: string;
@@ -20,12 +33,12 @@ interface GooglePlacesAutocompleteProps {
   onCoordinatesSelect?: (coordinates: {lat: number, lng: number, address?: string}) => void;
 }
 
-// Composant pour l'autocomplétion d'adresses avec l'API Google Places
+// Composant pour l'autocomplétion d'adresses avec l'API Google Places (fallback classique)
 const PlaceAutocompleteElement: React.FC<{
   onPlaceSelect: (place: any) => void;
   onCoordinatesSelect?: (coordinates: {
-    lat: number, 
-    lng: number, 
+    lat: number,
+    lng: number,
     address?: string,
     streetAddress?: string,
     city?: string,
@@ -40,79 +53,52 @@ const PlaceAutocompleteElement: React.FC<{
   const autocompleteRef = useRef<any>(null);
 
   useEffect(() => {
-    // S'assurer que l'API Google Maps est chargée et que l'input existe
     if (!inputRef.current || !window.google || !window.google.maps || !window.google.maps.places) {
       return;
     }
-
     try {
-      // Créer l'instance d'autocomplétion avec l'API classique
       autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
         componentRestrictions: { country: 'fr' },
         types: ['address'],
         fields: ['address_components', 'formatted_address', 'geometry', 'name', 'place_id']
       });
-
-      // Écouter les événements de sélection de lieu
       autocompleteRef.current.addListener('place_changed', () => {
         try {
           const place = autocompleteRef.current.getPlace();
           if (place && place.formatted_address) {
-            // Utiliser l'adresse formatée complète fournie par Google
             const fullAddress = place.formatted_address;
-            console.log('Adresse complète récupérée depuis Google Places:', fullAddress);
-            
-            // S'assurer que l'adresse n'est pas tronquée
             onInputChange(fullAddress);
-            
-            // Déterminer les coordonnées à utiliser
             let coordinates: {
-              lat: number, 
-              lng: number, 
+              lat: number,
+              lng: number,
               address?: string,
               streetAddress?: string,
               city?: string,
               postalCode?: string
             };
-            
-            // Extraire les différentes parties de l'adresse
             let streetAddress = '';
             let city = '';
             let postalCode = '';
-            
-            // Parcourir les composants d'adresse pour extraire les informations
             if (place.address_components) {
               for (const component of place.address_components) {
                 const types = component.types;
-                
-                // Extraire le numéro et la rue
                 if (types.includes('street_number')) {
                   streetAddress = component.long_name + ' ' + streetAddress;
                 }
                 if (types.includes('route')) {
                   streetAddress = streetAddress + component.long_name;
                 }
-                
-                // Extraire la ville
                 if (types.includes('locality')) {
                   city = component.long_name;
                 }
-                
-                // Extraire le code postal
                 if (types.includes('postal_code')) {
                   postalCode = component.long_name;
                 }
               }
             }
-            
-            console.log('Adresse décomposée:', { streetAddress, city, postalCode });
-            
-            // Récupérer les coordonnées depuis l'API Places
             if (place.geometry && place.geometry.location) {
-              // Utiliser les coordonnées exactes fournies par Google Places
               const exactLat = place.geometry.location.lat();
               const exactLng = place.geometry.location.lng();
-              
               coordinates = {
                 lat: exactLat,
                 lng: exactLng,
@@ -121,48 +107,19 @@ const PlaceAutocompleteElement: React.FC<{
                 city,
                 postalCode
               };
-              
-              console.log('Coordonnées EXACTES récupérées depuis Google Places:', coordinates);
             } else {
-              // Si les coordonnées ne sont pas disponibles, vérifier si nous avons le code postal et la ville
-              if (city && postalCode) {
-                console.warn('Coordonnées non disponibles, mais ville et code postal présents. Utilisation de coordonnées approximatives.');
-                
-                // Utiliser des coordonnées approximatives basées sur le code postal et la ville
-                // Ces coordonnées sont plus précises que les coordonnées par défaut pour la France
-                coordinates = {
-                  lat: 45.4, // Coordonnées approximatives pour la France
-                  lng: 5.4,
-                  address: fullAddress,
-                  streetAddress,
-                  city,
-                  postalCode
-                };
-                
-                console.log('Utilisation de coordonnées approximatives basées sur la ville et le code postal:', coordinates);
-              } else {
-                // Si aucune information n'est disponible, utiliser des coordonnées par défaut pour la France
-                console.warn('Aucune coordonnée disponible pour cette adresse. Utilisation des coordonnées par défaut.');
-                
-                coordinates = {
-                  lat: 46.603354, // Coordonnées du centre de la France
-                  lng: 1.888334,
-                  address: fullAddress,
-                  streetAddress,
-                  city,
-                  postalCode
-                };
-                
-                console.log('Utilisation de coordonnées par défaut pour la France:', coordinates);
-              }
+              coordinates = {
+                lat: 46.603354,
+                lng: 1.888334,
+                address: fullAddress,
+                streetAddress,
+                city,
+                postalCode
+              };
             }
-            
-            // Transmettre les coordonnées immédiatement si la prop est fournie
             if (onCoordinatesSelect) {
               onCoordinatesSelect(coordinates);
             }
-            
-            // Créer un objet place filtré sans les propriétés dépréciées
             const filteredPlace = {
               formatted_address: fullAddress,
               geometry: place.geometry,
@@ -170,19 +127,28 @@ const PlaceAutocompleteElement: React.FC<{
               place_id: place.place_id,
               address_components: place.address_components
             };
-            
-            // Déclencher onPlaceSelect immédiatement pour lancer la recherche automatique
             onPlaceSelect(filteredPlace);
           }
         } catch (error) {
-          console.error('Erreur lors de la récupération du lieu:', error);
+          console.error('[GooglePlacesAutocomplete] Erreur lors de la récupération du lieu (fallback):', error);
         }
       });
+      // Ajout : forcer la sélection de la première suggestion lors du blur
+      if (inputRef.current) {
+        inputRef.current.addEventListener('blur', () => {
+          // Si aucune suggestion n'a été sélectionnée, forcer la sélection de la première
+          const pacContainer = document.querySelector('.pac-container');
+          if (pacContainer) {
+            const firstSuggestion = pacContainer.querySelector('.pac-item');
+            if (firstSuggestion) {
+              (firstSuggestion as HTMLElement).click();
+            }
+          }
+        });
+      }
     } catch (error) {
-      console.error('Erreur lors de l\'initialisation de l\'autocomplétion:', error);
+      console.error('[GooglePlacesAutocomplete] Erreur lors de l\'initialisation de l\'autocomplétion (fallback):', error);
     }
-
-    // Nettoyage lors du démontage
     return () => {
       if (autocompleteRef.current && window.google && window.google.maps) {
         window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
@@ -194,8 +160,7 @@ const PlaceAutocompleteElement: React.FC<{
     <input
       ref={inputRef}
       type="text"
-      value={inputValue}
-      onChange={(e) => onInputChange(e.target.value)}
+      defaultValue={inputValue}
       placeholder={placeholder || 'Entrez une adresse'}
       disabled={disabled}
       className="block w-full px-4 py-2 text-sm border border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary"
@@ -203,6 +168,45 @@ const PlaceAutocompleteElement: React.FC<{
   );
 };
 
+// Fonction globale requise par Google Maps pour le paramètre callback=initMap
+if (typeof window !== 'undefined' && !(window as any).initMap) {
+  (window as any).initMap = () => {};
+}
+
+function loadGoogleMapsScript(apiKey: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (window.google && window.google.maps && window.google.maps.places) {
+      console.log('[GooglePlacesAutocomplete] Script déjà chargé.');
+      resolve();
+      return;
+    }
+    const existingScript = document.getElementById('google-maps-script');
+    if (existingScript) {
+      console.log('[GooglePlacesAutocomplete] Script déjà présent dans le DOM, attente de son chargement.');
+      existingScript.addEventListener('load', () => resolve());
+      return;
+    }
+    console.log('[GooglePlacesAutocomplete] Insertion du script Google Maps dans le DOM...');
+    const script = document.createElement('script');
+    script.id = 'google-maps-script';
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      console.log('[GooglePlacesAutocomplete] Script Google Maps chargé.');
+      resolve();
+    };
+    script.onerror = () => {
+      console.error('[GooglePlacesAutocomplete] Erreur lors du chargement du script Google Maps');
+      reject('Erreur lors du chargement de Google Maps');
+    };
+    document.body.appendChild(script);
+  });
+}
+
+const GOOGLE_GEOCODING_API = 'https://maps.googleapis.com/maps/api/geocode/json';
+
+// Nouveau composant utilisant PlaceAutocompleteElement
 const GooglePlacesAutocomplete: React.FC<GooglePlacesAutocompleteProps> = ({
   label,
   placeholder,
@@ -213,67 +217,43 @@ const GooglePlacesAutocomplete: React.FC<GooglePlacesAutocompleteProps> = ({
   onCoordinatesSelect
 }) => {
   const [isLoaded, setIsLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState(value || '');
 
-  // Charger l'API Google Maps
   useEffect(() => {
-    const loadGoogleMapsAPI = async () => {
-      try {
-        const loader = new Loader({
-          apiKey: GOOGLE_MAPS_API_KEY,
-          version: 'weekly',
-          libraries: ['places']
-        });
+    setInputValue(value || '');
+  }, [value]);
 
-        await loader.load();
-        setIsLoaded(true);
-      } catch (err) {
-        console.error('Erreur lors du chargement de l\'API Google Maps:', err);
-        setError('Impossible de charger l\'API Google Maps. Vérifiez votre connexion internet et réessayez.');
-      }
-    };
-
-    loadGoogleMapsAPI();
+  // Charger le script Google Maps
+  useEffect(() => {
+    loadGoogleMapsScript(GOOGLE_MAPS_API_KEY)
+      .then(() => setIsLoaded(true))
+      .catch(() => {
+        setIsLoaded(false);
+        setLoadError("Impossible de charger Google Maps. Vérifiez votre connexion ou votre clé API.");
+      });
   }, []);
 
-  // Fonction de gestion du changement de valeur
-  const handleInputChange = useCallback((newValue: string) => {
-    onChange(newValue);
-  }, [onChange]);
-
   return (
-    <div className="relative">
-      {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          {label}
-        </label>
+    <div>
+      {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
+      {loadError && (
+        <div className="text-error text-sm mb-2">{loadError}</div>
       )}
-      <div className="relative">
-        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <MapPin className="h-5 w-5 text-gray-400" />
-        </div>
-        {isLoaded ? (
-          <PlaceAutocompleteElement
-            inputValue={value}
-            onInputChange={handleInputChange}
-            onPlaceSelect={onPlaceSelect}
-            onCoordinatesSelect={onCoordinatesSelect}
-            placeholder={placeholder}
-            disabled={disabled}
-          />
-        ) : (
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder || 'Chargement de l\'API Google Maps...'}
-            disabled={true}
-            className="block w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-md shadow-sm focus:border-primary focus:ring-primary"
-          />
-        )}
-      </div>
-      {error && (
-        <p className="mt-1 text-sm text-red-600">{error}</p>
+      {isLoaded ? (
+        <PlaceAutocompleteElement
+          onPlaceSelect={onPlaceSelect}
+          onCoordinatesSelect={onCoordinatesSelect}
+          inputValue={inputValue}
+          onInputChange={val => {
+            setInputValue(val);
+            onChange(val);
+          }}
+          placeholder={placeholder}
+          disabled={disabled}
+        />
+      ) : (
+        <div className="text-sm text-gray-500">Chargement de l'autocomplétion Google…</div>
       )}
     </div>
   );

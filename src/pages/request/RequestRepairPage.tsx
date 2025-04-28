@@ -14,6 +14,7 @@ import { qrCodeService } from '../../services/qrCodeService';
 import { notificationService } from '../../services/notificationService';
 // Nous définissons notre propre interface RelayPointWithDistance, donc nous n'avons plus besoin d'importer RelayPoint
 import RepairQRCode from '../../components/repair/RepairQRCode';
+import { supabase } from '../../lib/supabaseConfig';
 
 const deviceTypes = [
   { value: 'laptop', label: 'Ordinateur portable' },
@@ -110,6 +111,12 @@ const RequestRepairPage: React.FC = () => {
   const [repairCode, setRepairCode] = useState('');
   const [repairId, setRepairId] = useState('');
   
+  // Ajoute un état pour les erreurs de validation
+  const [validationError, setValidationError] = useState<string | null>(null);
+  
+  const [email, setEmail] = useState(user?.email || '');
+  const [phone, setPhone] = useState(user?.phone || '');
+  
   const handleNext = async () => {
     // Log pour débogage
     console.log('handleNext appelé avec les valeurs suivantes:', {
@@ -164,6 +171,14 @@ const RequestRepairPage: React.FC = () => {
       try {
         if (!user) {
           throw new Error('Vous devez être connecté pour soumettre une demande de réparation.');
+        }
+        
+        // Met à jour le profil si l'utilisateur a modifié son email ou téléphone
+        if ((user && (email !== user.email || phone !== user.phone))) {
+          await supabase
+            .from('profiles')
+            .update({ email, phone })
+            .eq('id', user.id);
         }
         
         // Créer la demande de réparation
@@ -258,9 +273,10 @@ const RequestRepairPage: React.FC = () => {
         }
         
         const submittedStatus = statuses.find(status => 
-          status.name?.toLowerCase() === 'submitted' || 
-          status.name?.toLowerCase() === 'soumise' ||
-          status.name?.toLowerCase() === 'nouvelle');
+          status.code?.toLowerCase() === 'submitted' || 
+          status.label?.toLowerCase() === 'soumise' ||
+          status.label?.toLowerCase() === 'nouvelle'
+        );
         
         if (submittedStatus) {
           setSubmittedStatusId(submittedStatus.id);
@@ -388,6 +404,35 @@ const RequestRepairPage: React.FC = () => {
     }
   };
   
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setValidationError(null);
+
+    // Vérifie que l'email et le téléphone sont renseignés
+    if (!selectedRelayPointDetails?.email || !selectedRelayPointDetails?.phoneNumber) {
+      setValidationError("L'email et le téléphone sont obligatoires pour déposer une demande.");
+      return;
+    }
+
+    // ... suite du code de soumission ...
+  };
+  
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (user?.id) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('phone')
+          .eq('id', user.id)
+          .single();
+        if (profile && profile.phone) {
+          setPhone(profile.phone);
+        }
+      }
+    };
+    fetchProfile();
+  }, [user]);
+  
   return (
     <Layout>
       <div className="py-12 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto">
@@ -462,6 +507,24 @@ const RequestRepairPage: React.FC = () => {
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                   placeholder="Ex: MacBook Pro 2019, Galaxy S21..."
+                  required
+                  fullWidth
+                />
+                
+                <Input
+                  label="Email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  fullWidth
+                />
+                
+                <Input
+                  label="Téléphone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
                   required
                   fullWidth
                 />
@@ -585,95 +648,33 @@ const RequestRepairPage: React.FC = () => {
                         value={address}
                         onChange={(value) => {
                           setAddress(value);
-                          // Nous n'avons plus besoin de stocker le placeId
+                          // Ne rien faire d'autre ici
                         }}
                         onPlaceSelect={(place) => {
-                          if (place.formatted_address) {
+                          if (place && place.formatted_address) {
                             setAddress(place.formatted_address);
-                            // Ne pas déclencher la recherche ici, elle sera déclenchée après avoir reçu les coordonnées
-                          }
-                        }}
-                        onCoordinatesSelect={(coords) => {
-                          console.log('Coordonnées reçues dans RequestRepairPage:', coords);
-                          
-                          // Vérifier que les coordonnées sont valides
-                          if (!coords || typeof coords.lat !== 'number' || typeof coords.lng !== 'number') {
-                            console.error('Coordonnées invalides reçues:', coords);
-                            // Utiliser des coordonnées par défaut pour la France
-                            const defaultCoords: Coordinates = {
-                              lat: 46.603354, // Centre de la France
-                              lng: 1.888334,
-                              address: address,
-                              streetAddress: '',
-                              city: '',
-                              postalCode: ''
-                            };
-                            console.log('Utilisation de coordonnées par défaut:', defaultCoords);
-                            
-                            // Déclencher la recherche directement avec les coordonnées par défaut
-                            // sans passer par l'état qui peut être réinitialisé
-                            try {
-                              setLoading(true);
-                              setError(null);
-                              console.log('Recherche directe avec coordonnées par défaut:', defaultCoords);
-                              relayPointService.getNearbyRelayPointsByCoordinates(defaultCoords.lat, defaultCoords.lng, 20)
-                                .then(nearbyRelayPoints => {
-                                  setRelayPoints(nearbyRelayPoints as unknown as RelayPointWithDistance[]);
-                                  if (nearbyRelayPoints.length === 0) {
-                                    setError('Aucun point relais trouvé à proximité de cette adresse. Essayez une autre adresse ou élargissez votre recherche.');
-                                  } else {
-                                    setShowMap(true);
-                                  }
-                                })
-                                .catch(error => {
-                                  console.error('Erreur lors de la recherche des points relais:', error);
-                                  setError(error.message || 'Une erreur est survenue lors de la recherche des points relais. Veuillez réessayer.');
-                                })
-                                .finally(() => {
-                                  setLoading(false);
-                                });
-                            } catch (error: any) {
-                              console.error('Erreur lors de la recherche des points relais:', error);
-                              setError(error.message || 'Une erreur est survenue lors de la recherche des points relais. Veuillez réessayer.');
-                              setLoading(false);
+                            // Extraire les coordonnées si disponibles
+                            const location = place.geometry?.location;
+                            let lat = 46.603354;
+                            let lng = 1.888334;
+                            if (location) {
+                              if (typeof location.lat === 'function' && typeof location.lng === 'function') {
+                                lat = location.lat();
+                                lng = location.lng();
+                              } else if (location.lat !== undefined && location.lng !== undefined) {
+                                lat = location.lat;
+                                lng = location.lng;
+                              }
                             }
-                            return;
-                          }
-                          
-                          // Si l'adresse complète est fournie avec les coordonnées, la mettre à jour
-                          if (coords.address && coords.address !== address) {
-                            console.log('Mise à jour de l\'adresse complète:', coords.address);
-                            setAddress(coords.address);
-                          }
-                          
-                          // Afficher les informations décomposées de l'adresse
-                          // Assurons-nous que coords est bien du type Coordinates
-                          const coordsWithDetails = coords as Coordinates;
-                          if (coordsWithDetails.streetAddress || coordsWithDetails.city || coordsWithDetails.postalCode) {
-                            console.log('Informations décomposées de l\'adresse:', {
-                              rue: coordsWithDetails.streetAddress,
-                              ville: coordsWithDetails.city,
-                              codePostal: coordsWithDetails.postalCode
-                            });
-                          }
-                          
-                          // Déclencher la recherche directement avec les coordonnées reçues
-                          // sans passer par l'état qui peut être réinitialisé
-                          try {
+                            const coords = {
+                              lat,
+                              lng,
+                              address: place.formatted_address
+                            };
+                            setCoordinates(coords);
                             setLoading(true);
                             setError(null);
-                            console.log('Recherche directe avec coordonnées EXACTES:', coords);
-                            // S'assurer que coords est du type Coordinates
-                            const coordsToUse: Coordinates = {
-                              lat: coords.lat,
-                              lng: coords.lng,
-                              address: coords.address || '',
-                              // Utiliser le casting pour accéder aux propriétés supplémentaires
-                              streetAddress: (coords as Coordinates).streetAddress || '',
-                              city: (coords as Coordinates).city || '',
-                              postalCode: (coords as Coordinates).postalCode || ''
-                            };
-                            relayPointService.getNearbyRelayPointsByCoordinates(coordsToUse.lat, coordsToUse.lng, 20)
+                            relayPointService.getNearbyRelayPointsByCoordinates(lat, lng, 20)
                               .then(nearbyRelayPoints => {
                                 setRelayPoints(nearbyRelayPoints as unknown as RelayPointWithDistance[]);
                                 if (nearbyRelayPoints.length === 0) {
@@ -689,13 +690,9 @@ const RequestRepairPage: React.FC = () => {
                               .finally(() => {
                                 setLoading(false);
                               });
-                          } catch (error: any) {
-                            console.error('Erreur lors de la recherche des points relais:', error);
-                            setError(error.message || 'Une erreur est survenue lors de la recherche des points relais. Veuillez réessayer.');
-                            setLoading(false);
                           }
-                          
-                          // Mettre à jour l'état des coordonnées pour une utilisation ultérieure
+                        }}
+                        onCoordinatesSelect={(coords) => {
                           setCoordinates(coords);
                         }}
                         disabled={loading}
@@ -860,6 +857,13 @@ const RequestRepairPage: React.FC = () => {
                     Retour au tableau de bord
                   </Button>
                 </div>
+              </div>
+            )}
+            
+            {/* Affiche l'erreur de validation si besoin */}
+            {validationError && (
+              <div className="p-2 mb-4 bg-error/10 border border-error/20 rounded text-error text-sm">
+                {validationError}
               </div>
             )}
           </Card.Content>

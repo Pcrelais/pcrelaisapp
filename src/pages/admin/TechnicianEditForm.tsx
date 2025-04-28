@@ -4,6 +4,10 @@ import { ArrowLeft, Save } from 'lucide-react';
 import { supabase } from '../../lib/supabaseConfig';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
+import GooglePlacesAutocomplete from '../../components/ui/GooglePlacesAutocomplete';
+import { MapContainer, TileLayer, Marker, Circle, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 interface TechnicianFormData {
   first_name: string;
@@ -12,6 +16,50 @@ interface TechnicianFormData {
   phone?: string;
   specialization?: string;
   is_active: boolean;
+  latitude?: number;
+  longitude?: number;
+  zone_radius_km?: number;
+  address?: string;
+}
+
+// Utilitaire pour extraire ville/code postal depuis Google Places (si dispo)
+function extractCityPostal(address: string): { city?: string; postalCode?: string } {
+  if (!address) return {};
+  // Simple extraction par regex (à adapter selon format)
+  const postalMatch = address.match(/\b\d{5}\b/);
+  const cityMatch = address.match(/\b([A-Za-zÀ-ÿ\-\s']{2,})\b(?=,|$)/g);
+  return {
+    postalCode: postalMatch ? postalMatch[0] : undefined,
+    city: cityMatch ? cityMatch[cityMatch.length - 1]?.trim() : undefined
+  };
+}
+
+// Composant pour déplacer le marqueur sur la carte
+function DraggableMarker({ position, onChange }: { position: [number, number], onChange: (lat: number, lng: number) => void }) {
+  const [draggable, setDraggable] = useState(true);
+  const [markerPosition, setMarkerPosition] = useState<[number, number]>(position);
+  useEffect(() => { setMarkerPosition(position); }, [position]);
+  useMapEvents({
+    click(e: any) {
+      setMarkerPosition([e.latlng.lat, e.latlng.lng]);
+      onChange(e.latlng.lat, e.latlng.lng);
+    }
+  });
+  return (
+    <Marker
+      position={markerPosition}
+      draggable={draggable}
+      eventHandlers={{
+        dragend: (e: any) => {
+          const marker = e.target;
+          const pos = marker.getLatLng();
+          setMarkerPosition([pos.lat, pos.lng]);
+          onChange(pos.lat, pos.lng);
+        }
+      }}
+      icon={L.icon({ iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png', iconSize: [25, 41], iconAnchor: [12, 41] })}
+    />
+  );
 }
 
 const TechnicianEditForm: React.FC = () => {
@@ -21,6 +69,7 @@ const TechnicianEditForm: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [coordError, setCoordError] = useState<string | null>(null);
   
   const [formData, setFormData] = useState<TechnicianFormData>({
     first_name: '',
@@ -28,7 +77,11 @@ const TechnicianEditForm: React.FC = () => {
     email: '',
     phone: '',
     specialization: '',
-    is_active: true
+    is_active: true,
+    latitude: undefined,
+    longitude: undefined,
+    zone_radius_km: 30,
+    address: ''
   });
   
   useEffect(() => {
@@ -63,7 +116,11 @@ const TechnicianEditForm: React.FC = () => {
           email: data.email || '',
           phone: data.phone || '',
           specialization: data.specialization || '',
-          is_active: data.is_active !== false // Si is_active est undefined, on considère que c'est true
+          is_active: data.is_active !== false,
+          latitude: typeof data.latitude === 'number' ? data.latitude : undefined,
+          longitude: typeof data.longitude === 'number' ? data.longitude : undefined,
+          zone_radius_km: typeof data.zone_radius_km === 'number' ? data.zone_radius_km : 30,
+          address: data.address || ''
         });
         
       } catch (error: any) {
@@ -83,6 +140,8 @@ const TechnicianEditForm: React.FC = () => {
     if (type === 'checkbox') {
       const checked = (e.target as HTMLInputElement).checked;
       setFormData(prev => ({ ...prev, [name]: checked }));
+    } else if (type === 'number') {
+      setFormData(prev => ({ ...prev, [name]: value === '' ? undefined : Number(value) }));
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -90,78 +149,58 @@ const TechnicianEditForm: React.FC = () => {
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     try {
       setSaving(true);
       setError(null);
-      
       if (!id) {
         setError("ID du technicien manquant");
         return;
       }
-      
-      // Vérifier si la colonne is_active existe
-      const { data: columnExists, error: columnError } = await supabase
-        .rpc('check_column_exists', { 
-          table_name: 'profiles', 
-          column_name: 'is_active' 
-        });
-      
-      if (columnError) {
-        console.error('Erreur lors de la vérification de la colonne:', columnError);
-        throw new Error("Impossible de vérifier si la colonne is_active existe. Veuillez exécuter la migration 11_add_is_active_column.sql.");
-      }
-      
-      // Vérifier si la colonne specialization existe
-      const { data: specializationExists, error: specializationError } = await supabase
-        .rpc('check_column_exists', { 
-          table_name: 'profiles', 
-          column_name: 'specialization' 
-        });
-      
-      if (specializationError) {
-        console.error('Erreur lors de la vérification de la colonne:', specializationError);
-        throw new Error("Impossible de vérifier si la colonne specialization existe. Veuillez exécuter la migration 11_add_is_active_column.sql.");
-      }
-      
       // Préparer les données à mettre à jour
       const updateData: any = {
         first_name: formData.first_name,
         last_name: formData.last_name,
-        phone: formData.phone || null
+        phone: formData.phone || null,
+        latitude: formData.latitude !== undefined ? Number(formData.latitude) : null,
+        longitude: formData.longitude !== undefined ? Number(formData.longitude) : null,
+        zone_radius_km: formData.zone_radius_km !== undefined ? Number(formData.zone_radius_km) : 30,
+        address: formData.address || null,
+        is_active: formData.is_active,
+        specialization: formData.specialization || null
       };
-      
-      // Ajouter is_active si la colonne existe
-      if (columnExists) {
-        updateData.is_active = formData.is_active;
-      }
-      
-      // Ajouter specialization si la colonne existe
-      if (specializationExists) {
-        updateData.specialization = formData.specialization || null;
-      }
-      
       // Mettre à jour le technicien
       const { error: updateError } = await supabase
         .from('profiles')
         .update(updateData)
         .eq('id', id);
-      
       if (updateError) {
         throw updateError;
       }
-      
       setSuccessMessage("Technicien mis à jour avec succès");
       setTimeout(() => {
         navigate('/admin/technicians');
       }, 2000);
-      
     } catch (error: any) {
       console.error('Erreur lors de la mise à jour du technicien:', error);
       setError(error.message || "Erreur lors de la mise à jour du technicien");
     } finally {
       setSaving(false);
     }
+  };
+  
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setCoordError("La géolocalisation n'est pas supportée par ce navigateur.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setFormData(prev => ({ ...prev, latitude: pos.coords.latitude, longitude: pos.coords.longitude }));
+        setCoordError(null);
+      },
+      () => setCoordError("Impossible de récupérer la position actuelle."),
+      { enableHighAccuracy: true }
+    );
   };
   
   return (
@@ -282,6 +321,54 @@ const TechnicianEditForm: React.FC = () => {
                     Technicien actif
                   </label>
                 </div>
+                
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Adresse du technicien (autocomplétion)
+                  </label>
+                  <GooglePlacesAutocomplete
+                    label=""
+                    placeholder="Entrez l'adresse complète"
+                    value={formData.address || ''}
+                    onChange={(value) => setFormData(prev => ({ ...prev, address: value }))}
+                    onPlaceSelect={(place) => {
+                      if (place && place.formatted_address) {
+                        const location = place.geometry?.location;
+                        setFormData(prev => ({
+                          ...prev,
+                          address: place.formatted_address,
+                          latitude:
+                            typeof location?.lat === 'function'
+                              ? location.lat()
+                              : location?.lat ?? prev.latitude,
+                          longitude:
+                            typeof location?.lng === 'function'
+                              ? location.lng()
+                              : location?.lng ?? prev.longitude
+                        }));
+                      }
+                    }}
+                  />
+                  {formData.latitude && formData.longitude && (
+                    <div className="mt-2 text-sm text-gray-600">
+                      Coordonnées: {parseFloat(String(formData.latitude)).toFixed(6)}, {parseFloat(String(formData.longitude)).toFixed(6)}
+                    </div>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Rayon de couverture (km)
+                  </label>
+                  <input
+                    type="number"
+                    name="zone_radius_km"
+                    value={formData.zone_radius_km || 30}
+                    onChange={handleChange}
+                    min={1}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
               </div>
               
               <div className="flex justify-end">
@@ -313,6 +400,31 @@ const TechnicianEditForm: React.FC = () => {
             </form>
           </Card.Content>
         </Card>
+      )}
+      {/* Affichage de la carte interactive si coordonnées valides */}
+      {formData.latitude !== undefined && formData.longitude !== undefined && (
+        <div className="mt-4" style={{ height: 300 }}>
+          <MapContainer
+            center={[formData.latitude, formData.longitude]}
+            zoom={13}
+            style={{ height: 300, width: '100%' }}
+            scrollWheelZoom={true}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <DraggableMarker
+              position={[formData.latitude, formData.longitude]}
+              onChange={(lat, lng) => setFormData(prev => ({ ...prev, latitude: lat, longitude: lng }))}
+            />
+            <Circle
+              center={[formData.latitude, formData.longitude]}
+              radius={(formData.zone_radius_km || 30) * 1000}
+              pathOptions={{ color: 'blue', fillOpacity: 0.2 }}
+            />
+          </MapContainer>
+        </div>
       )}
     </div>
   );

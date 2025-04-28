@@ -30,10 +30,28 @@ const QRScanner: React.FC<QRScannerProps> = ({ onScanSuccess, onScanError }) => 
     if (!html5QrCode) return;
 
     setScanning(true);
-    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+    
+    // Configuration optimisée pour mobile
+    const config = {
+      fps: 10,
+      qrbox: { width: 300, height: 300 },
+      aspectRatio: 1.0,
+      //formatsToSupport: [ "QR_CODE" ],
+      experimentalFeatures: {
+        useBarCodeDetectorIfSupported: true
+      }
+    };
+
+    // Détecter si on est sur mobile
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    // Configuration de la caméra adaptée au mobile
+    const cameraConfig = isMobile 
+      ? { facingMode: { exact: "environment" } } // Force la caméra arrière sur mobile
+      : { facingMode: "environment" }; // Caméra arrière par défaut
 
     html5QrCode.start(
-      { facingMode: "environment" }, // Utiliser la caméra arrière
+      cameraConfig,
       config,
       (decodedText) => {
         // Succès du scan
@@ -67,7 +85,28 @@ const QRScanner: React.FC<QRScannerProps> = ({ onScanSuccess, onScanError }) => 
 
   return (
     <div className="qr-scanner-container">
-      <div id={qrScannerElementId} className="qr-scanner-element" style={{ width: '100%', maxWidth: '500px', margin: '0 auto' }}></div>
+      <div 
+        id={qrScannerElementId} 
+        className="qr-scanner-element" 
+        style={{ 
+          width: '100%', 
+          maxWidth: '500px', 
+          margin: '0 auto',
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: '8px'
+        }}
+      >
+        {scanning && (
+          <div 
+            className="absolute inset-0 border-2 border-primary"
+            style={{
+              boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
+              borderRadius: '8px'
+            }}
+          />
+        )}
+      </div>
       
       <div className="mt-4 flex justify-center">
         {!scanning ? (

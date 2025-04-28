@@ -144,15 +144,17 @@ const RepairDetailPage: React.FC = () => {
         
         // Récupérer les informations du technicien
         let technicianData = null;
+        let technicianName = undefined;
         if (repairData.technician_id) {
           const { data: technician, error: technicianError } = await supabase
             .from('profiles')
             .select('id, first_name, last_name')
             .eq('id', repairData.technician_id)
+            .eq('role', 'technician')
             .maybeSingle();
-            
           if (!technicianError && technician) {
             technicianData = technician;
+            technicianName = `${technician.first_name || ''} ${technician.last_name || ''}`.trim();
           }
         }
         
@@ -222,7 +224,7 @@ const RepairDetailPage: React.FC = () => {
           pickupRelayName: enrichedRepairData.pickupRelay ? `${enrichedRepairData.pickupRelay.first_name || ''} ${enrichedRepairData.pickupRelay.last_name || ''}`.trim() : undefined,
           appointmentDate: enrichedRepairData.appointment_date,
           technicianId: enrichedRepairData.technician_id,
-          technicianName: enrichedRepairData.technician ? `${enrichedRepairData.technician.first_name || ''} ${enrichedRepairData.technician.last_name || ''}`.trim() : undefined,
+          technicianName: technicianName || 'Non assigné',
           notes: repairData.notes
         };
         
@@ -496,12 +498,8 @@ const RepairDetailPage: React.FC = () => {
                   <h3 className="text-sm font-medium text-gray-500">Client</h3>
                 </div>
                 <p className="text-gray-900">{repair.clientName || 'Non défini'}</p>
-                {repair.clientEmail && (
-                  <p className="text-gray-600 text-sm">{repair.clientEmail}</p>
-                )}
-                {repair.clientPhone && (
-                  <p className="text-gray-600 text-sm">{repair.clientPhone}</p>
-                )}
+                <p className="text-gray-600 text-sm">{repair.clientEmail || 'Non renseigné'}</p>
+                <p className="text-gray-600 text-sm">{repair.clientPhone || 'Non renseigné'}</p>
               </div>
               
               <div>
@@ -525,7 +523,7 @@ const RepairDetailPage: React.FC = () => {
                   <MapPin className="h-4 w-4 text-gray-500 mr-2" />
                   <h3 className="text-sm font-medium text-gray-500">Point relais (retrait)</h3>
                 </div>
-                <p className="text-gray-900">{repair.pickupRelayName || 'Non défini'}</p>
+                <p className="text-gray-900">{repair.dropOffRelayName || 'Non défini'}</p>
               </div>
             </div>
           </Card.Content>

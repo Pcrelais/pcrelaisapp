@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { qrCodeService } from '../../services/qrCodeService';
 import { relayOperationService } from '../../services/relayOperationService';
 import Input from '../../components/ui/Input';
+import { supabase } from '../../lib/supabaseConfig';
 
 const ScanQRCodePage: React.FC = () => {
   const { user } = useAuth();
@@ -18,6 +19,7 @@ const ScanQRCodePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ repairId: string, message: string } | null>(null);
   const [scanMode, setScanMode] = useState<'camera' | 'manual'>('camera');
+  const [clientInfo, setClientInfo] = useState<{ email: string; phone: string } | null>(null);
 
   // Vérifier que l'utilisateur est un point relais
   if (!user || user.role !== 'relayPoint') {
@@ -47,22 +49,30 @@ const ScanQRCodePage: React.FC = () => {
     setLoading(true);
     setError(null);
     setSuccess(null);
-    
+    setClientInfo(null);
+
     try {
-      // Valider le QR code
+      // Valider le QR code (c'est ce service qui déchiffre et parse)
       const result = await qrCodeService.validateQRCode(decodedText, user.id);
-      
-      if (result.valid && result.repairId) {
+
+      if (result.valid && result.repairId && result.clientId && result.repairCode) {
+        // Récupérer les infos du client
+        const { data: client, error } = await supabase
+          .from('profiles') // ou 'users' selon ta table
+          .select('email, phone')
+          .eq('id', result.clientId)
+          .single();
+
+        if (client) {
+          setClientInfo({ email: client.email, phone: client.phone });
+        }
+
         // Marquer le code comme utilisé
-        // Récupérer le code depuis le QR code déchiffré
-        const decryptedData = JSON.parse(decodedText);
-        const repairCode = decryptedData?.code || '';
-        await qrCodeService.markCodeAsUsed(result.repairId, repairCode);
-        
+        await qrCodeService.markCodeAsUsed(result.repairId, result.repairCode);
+
         // Mettre à jour le statut de la réparation et associer le point relais
         await relayOperationService.processDropOff(result.repairId, user.id);
-        console.log(`Dépôt traité pour la réparation ${result.repairId} par le point relais ${user.id}`);
-        
+
         setSuccess({
           repairId: result.repairId,
           message: 'Appareil reçu avec succès! La demande de réparation a été mise à jour.'
@@ -71,7 +81,6 @@ const ScanQRCodePage: React.FC = () => {
         setError(result.message || 'QR code invalide');
       }
     } catch (error) {
-      console.error('Erreur lors de la validation du QR code:', error);
       setError('Une erreur est survenue lors de la validation du QR code');
     } finally {
       setLoading(false);
@@ -188,6 +197,12 @@ const ScanQRCodePage: React.FC = () => {
                   <p className="text-gray-600 text-sm mt-1">
                     ID de réparation: {success.repairId}
                   </p>
+                  {clientInfo && (
+                    <div className="mt-2 text-sm text-gray-700">
+                      <div><span className="font-semibold">Email client :</span> {clientInfo.email || 'Non renseigné'}</div>
+                      <div><span className="font-semibold">Téléphone client :</span> {clientInfo.phone || 'Non renseigné'}</div>
+                    </div>
+                  )}
                   <div className="mt-3">
                     <Button
                       variant="outline"
