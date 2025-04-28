@@ -170,6 +170,7 @@ export const repairService = {
       statusId: waitingDiagnosticStatusId, // Mettre le statut à 'WAITING_DIAGNOSTIC'
       created_at: now,
       updated_at: now,
+      relayPointId: repair.dropOffRelayId || repair.relayPointId // Correction : toujours synchroniser relayPointId avec dropOffRelayId
     };
     
     console.log('Création d\'une nouvelle réparation avec les données:', mapRepairRequestToDB(newRepair));

@@ -67,20 +67,8 @@ const RelayDashboard: React.FC = () => {
     try {
       setLoading(true);
       
-      // Charger les réparations du point relais en fonction de l'onglet actif
-      let repairsData: RelayRepairRequest[] = [];
-      
-      if (activeTab === 'all') {
-        repairsData = await relayOperationService.getRelayRepairs(user.id);
-      } else if (activeTab === 'dropOffs') {
-        repairsData = await relayOperationService.getPendingDropOffs(user.id);
-      } else if (activeTab === 'pickups') {
-        repairsData = await relayOperationService.getReadyForPickup(user.id);
-      } else if (activeTab === 'transit') {
-        repairsData = await relayOperationService.getInTransit(user.id);
-      }
-      
-      console.log(`Chargé ${repairsData?.length || 0} réparations pour l'onglet ${activeTab}`);
+      // Toujours charger toutes les réparations du relais
+      const repairsData = await relayOperationService.getRelayRepairs(user.id);
       setRepairs(repairsData || []);
       
       // Charger les statistiques
@@ -316,11 +304,10 @@ const RelayDashboard: React.FC = () => {
                         <Button
                           variant="primary"
                           size="sm"
-                          onClick={() => handleProcessDropOff(request.id)}
-                          disabled={processingId === request.id}
+                          onClick={() => navigate('/relay/scan')}
                           className="whitespace-nowrap"
                         >
-                          {processingId === request.id ? 'Traitement...' : 'Traiter le dépôt'}
+                          Traiter le dépôt
                         </Button>
                       )}
                       <Link 

@@ -1,11 +1,10 @@
 import { supabase } from '../lib/supabaseConfig';
-import { RepairRequest } from '../types';
 
 export const relayOperationService = {
   /**
    * Récupère les réparations associées à un point relais
    */
-  async getRelayRepairs(relayId: string): Promise<RepairRequest[]> {
+  async getRelayRepairs(relayId: string): Promise<any[]> {
     try {
       const { data, error } = await supabase
         .from('repair_requests')
@@ -77,7 +76,7 @@ export const relayOperationService = {
   /**
    * Récupère les dépôts à venir pour un point relais
    */
-  async getPendingDropOffs(relayId: string): Promise<RepairRequest[]> {
+  async getPendingDropOffs(relayId: string): Promise<any[]> {
     try {
       const { data, error } = await supabase
         .from('repair_requests')
@@ -138,7 +137,7 @@ export const relayOperationService = {
   /**
    * Récupère les appareils prêts pour récupération
    */
-  async getReadyForPickup(relayId: string): Promise<RepairRequest[]> {
+  async getReadyForPickup(relayId: string): Promise<any[]> {
     try {
       const { data, error } = await supabase
         .from('repair_requests')
@@ -198,7 +197,7 @@ export const relayOperationService = {
   /**
    * Récupère les appareils en transit
    */
-  async getInTransit(relayId: string): Promise<RepairRequest[]> {
+  async getInTransit(relayId: string): Promise<any[]> {
     try {
       const { data, error } = await supabase
         .from('repair_requests')
@@ -258,7 +257,7 @@ export const relayOperationService = {
   /**
    * Récupère les appareils traités ce mois
    */
-  async getCompletedThisMonth(relayId: string): Promise<RepairRequest[]> {
+  async getCompletedThisMonth(relayId: string): Promise<any[]> {
     try {
       // Obtenir le premier jour du mois courant
       const today = new Date();
@@ -523,25 +522,25 @@ export const relayOperationService = {
       // Récupérer le nombre de réparations pour chaque statut
       const pendingPromise = supabase
         .from('repair_requests')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: true })
         .eq('relay_point_id', relayId)
         .eq('status_id', statusMap['SUBMITTED']);
         
       const readyPromise = supabase
         .from('repair_requests')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: true })
         .eq('relay_point_id', relayId)
         .eq('status_id', statusMap['READY_FOR_PICKUP']);
         
       const transitPromise = supabase
         .from('repair_requests')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: true })
         .eq('relay_point_id', relayId)
         .eq('status_id', statusMap['RECEIVED']);
         
       const completedPromise = supabase
         .from('repair_requests')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: true })
         .eq('relay_point_id', relayId)
         .eq('status_id', statusMap['DELIVERED'])
         .gte('updated_at', firstDayOfMonth.toISOString());
