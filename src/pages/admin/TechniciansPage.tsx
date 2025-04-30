@@ -20,9 +20,10 @@ interface Technician {
   last_name: string;
   email: string;
   phone?: string;
-  specialization?: string;
-  is_active?: boolean; // Optionnel car la colonne peut ne pas exister encore
+  speciality?: string;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 const TechniciansPage: React.FC = () => {
@@ -38,7 +39,7 @@ const TechniciansPage: React.FC = () => {
     last_name: '',
     email: '',
     phone: '',
-    specialization: '',
+    speciality: '',
     password: ''
   });
   const [formError, setFormError] = useState<string | null>(null);
@@ -58,13 +59,13 @@ const TechniciansPage: React.FC = () => {
       setLoading(true);
       
       const { data, error } = await supabase
-        .from('profiles')
+        .from('technicians')
         .select('*')
-        .eq('role', 'technician')
         .order('last_name', { ascending: true });
       
       if (error) throw error;
       
+      console.log('Techniciens récupérés:', data);
       setTechnicians(data || []);
     } catch (error) {
       console.error('Erreur lors de la récupération des techniciens:', error);
@@ -84,42 +85,27 @@ const TechniciansPage: React.FC = () => {
     
     try {
       // Vérifier que tous les champs requis sont remplis
-      if (!newTechnician.first_name || !newTechnician.last_name || !newTechnician.email || !newTechnician.password) {
+      if (!newTechnician.first_name || !newTechnician.last_name || !newTechnician.email) {
         setFormError('Veuillez remplir tous les champs obligatoires.');
         return;
       }
       
-      // Créer un nouvel utilisateur avec Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: newTechnician.email,
-        password: newTechnician.password,
-        options: {
-          data: {
-            first_name: newTechnician.first_name,
-            last_name: newTechnician.last_name,
-            role: 'technician'
-          }
-        }
-      });
+      // Ajouter directement dans la table technicians
+      const { data, error } = await supabase
+        .from('technicians')
+        .insert({
+          first_name: newTechnician.first_name,
+          last_name: newTechnician.last_name,
+          email: newTechnician.email,
+          phone: newTechnician.phone,
+          speciality: newTechnician.speciality,
+          is_active: true
+        })
+        .select();
       
-      if (authError) throw authError;
+      if (error) throw error;
       
-      // Ajouter les informations supplémentaires dans la table profiles
-      if (authData.user) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({
-            first_name: newTechnician.first_name,
-            last_name: newTechnician.last_name,
-            phone: newTechnician.phone,
-            specialization: newTechnician.specialization,
-            is_active: true,
-            role: 'technician'
-          })
-          .eq('id', authData.user.id);
-        
-        if (profileError) throw profileError;
-      }
+      console.log('Technicien ajouté avec succès:', data);
       
       // Réinitialiser le formulaire
       setNewTechnician({
@@ -127,7 +113,7 @@ const TechniciansPage: React.FC = () => {
         last_name: '',
         email: '',
         phone: '',
-        specialization: '',
+        speciality: '',
         password: ''
       });
       
@@ -158,51 +144,43 @@ const TechniciansPage: React.FC = () => {
       
       // Vérifier si la migration a été appliquée
       try {
-        // Vérifier si la colonne is_active existe
-        const { data: columnExists, error: columnError } = await supabase
-          .rpc('check_column_exists', { 
-            table_name: 'profiles', 
-            column_name: 'is_active' 
-          });
+        const { error } = await supabase
+          .from('technicians')
+          .update({ is_active: !isActive })
+          .eq('id', technicianId);
         
-        if (columnError) {
-          console.error('Erreur lors de la vérification de la colonne:', columnError);
-          setFormError("Impossible de vérifier si la colonne is_active existe. Veuillez exécuter la migration 11_add_is_active_column.sql.");
-          return;
-        }
+        if (error) throw error;
         
-        if (columnExists) {
-          // La colonne existe, on peut faire la mise à jour
-          const { error: updateError } = await supabase
-            .from('profiles')
-            .update({ is_active: !isActive })
-            .eq('id', technicianId);
-          
-          if (updateError) {
-            throw updateError;
-          }
-          
-          // Mettre à jour l'interface utilisateur
-          setTechnicians(prevTechnicians => 
-            prevTechnicians.map(tech => 
-              tech.id === technicianId ? { ...tech, is_active: !isActive } : tech
-            )
-          );
-          
-          setSuccessMessage(`Statut du technicien mis à jour avec succès.`);
-        } else {
-          // La colonne n'existe pas encore
-          setFormError("La colonne is_active n'existe pas encore. Veuillez exécuter la migration 11_add_is_active_column.sql.");
-        }
-      } catch (error: any) {
+        // Mettre à jour la liste des techniciens
+        setTechnicians(prevTechnicians =>
+          prevTechnicians.map(tech =>
+            tech.id === technicianId ? { ...tech, is_active: !isActive } : tech
+          )
+        );
+        
+        setSuccessMessage(`Technicien ${!isActive ? 'activé' : 'désactivé'} avec succès.`);
+        
+        // Effacer le message de succès après 3 secondes
+        setTimeout(() => {
+          setSuccessMessage(null);
+        }, 3000);
+      } catch (error) {
         console.error('Erreur lors de la modification du statut:', error);
-        setFormError(error.message || 'Erreur lors de la modification du statut du technicien.');
+        setFormError('Une erreur est survenue lors de la modification du statut.');
+        
+        // Effacer le message d'erreur après 3 secondes
+        setTimeout(() => {
+          setFormError(null);
+        }, 3000);
       }
-      
-    } catch (error: any) {
+    } catch (error) {
       console.error('Erreur lors de la modification du statut:', error);
-      setFormError(error.message || 'Erreur lors de la modification du statut du technicien.');
-      setTimeout(() => setFormError(null), 3000);
+      setFormError('Une erreur est survenue lors de la modification du statut.');
+      
+      // Effacer le message d'erreur après 3 secondes
+      setTimeout(() => {
+        setFormError(null);
+      }, 3000);
     }
   };
   
@@ -344,15 +322,16 @@ const TechniciansPage: React.FC = () => {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="speciality" className="block text-sm font-medium text-gray-700 mb-1">
                     Spécialisation
                   </label>
                   <input
                     type="text"
-                    name="specialization"
-                    value={newTechnician.specialization}
+                    id="speciality"
+                    name="speciality"
+                    value={newTechnician.speciality}
                     onChange={handleInputChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
                     placeholder="ex: Smartphones, Ordinateurs..."
                   />
                 </div>
@@ -440,7 +419,7 @@ const TechniciansPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          {technician.specialization || 'Non spécifiée'}
+                          {technician.speciality || 'Non spécifiée'}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

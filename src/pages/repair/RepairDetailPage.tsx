@@ -81,6 +81,7 @@ const RepairDetailPage: React.FC = () => {
   
   useEffect(() => {
     const fetchRepairDetails = async () => {
+      console.log('=== DÉBUT DÉBOGAGE CONTACTS ===');
       if (!id || !user) return;
       
       try {
@@ -131,147 +132,272 @@ const RepairDetailPage: React.FC = () => {
         // Récupérer les informations du client
         let clientData = null;
         if (repairData.client_id) {
-          const { data: client, error: clientError } = await supabase
-            .from('profiles')
-            .select('id, first_name, last_name, email, phone')
-            .eq('id', repairData.client_id)
-            .maybeSingle();
-            
-          if (!clientError && client) {
-            clientData = client;
+          console.log('client_id trouvé:', repairData.client_id);
+          
+          try {
+            const { data: client, error: clientError } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', repairData.client_id)
+              .maybeSingle();
+              
+            console.log('Résultat de la requête pour le client:', client);
+              
+            if (!clientError && client) {
+              clientData = client;
+              console.log('Client récupéré:', clientData);
+            } else {
+              console.error('Erreur ou client non trouvé:', clientError);
+              // Créer un client par défaut avec les informations disponibles
+              clientData = {
+                id: repairData.client_id,
+                email: repairData.client_email || 'client@pcrelais.fr',
+                first_name: repairData.client_first_name || '',
+                last_name: repairData.client_last_name || '',
+                phone: repairData.client_phone || ''
+              };
+              console.log('Utilisation d\'un client par défaut:', clientData);
+            }
+          } catch (err) {
+            console.error('Erreur lors de la récupération du client:', err);
+            // Créer un client par défaut en cas d'erreur
+            clientData = {
+              id: repairData.client_id,
+              email: 'client@pcrelais.fr',
+              first_name: '',
+              last_name: '',
+              phone: ''
+            };
+            console.log('Utilisation d\'un client par défaut après erreur:', clientData);
           }
+        } else {
+          console.log('Aucun client_id trouvé dans la réparation');
         }
         
-        // Récupérer les informations du technicien
-        let technicianData = null;
-        let technicianName = undefined;
+        // Récupérer les informations du technicien depuis la nouvelle table technicians
+        let technicianName = 'Non assigné';
         if (repairData.technician_id) {
-          const { data: technician, error: technicianError } = await supabase
-            .from('profiles')
-            .select('id, first_name, last_name')
-            .eq('id', repairData.technician_id)
-            .eq('role', 'technician')
-            .maybeSingle();
-          if (!technicianError && technician) {
-            technicianData = technician;
-            technicianName = `${technician.first_name || ''} ${technician.last_name || ''}`.trim();
+          console.log('technician_id trouvé:', repairData.technician_id);
+          
+          try {
+            // Utiliser la table technicians pour récupérer les informations du technicien
+            const { data, error } = await supabase
+              .from('technicians')
+              .select('first_name, last_name')
+              .eq('id', repairData.technician_id)
+              .single();
+              
+            console.log('Résultat de la requête pour le technicien:', data);
+              
+            if (!error && data) {
+              const dbTechnicianName = `${data.first_name || ''} ${data.last_name || ''}`.trim();
+              if (dbTechnicianName) {
+                technicianName = dbTechnicianName;
+                console.log('Nom du technicien récupéré depuis la table technicians:', technicianName);
+              }
+            } else {
+              // Si la requête échoue, essayer d'utiliser la fonction RPC
+              console.log('Essai de récupération via la fonction RPC get_technician_by_id');
+              const { data: technicien, error: rpcError } = await supabase
+                .rpc('get_technician_by_id', { technician_id: repairData.technician_id });
+                
+              console.log('Résultat de la fonction RPC get_technician_by_id:', technicien);
+                
+              if (!rpcError && technicien) {
+                const rpcTechnicianName = `${technicien.first_name || ''} ${technicien.last_name || ''}`.trim();
+                if (rpcTechnicianName) {
+                  technicianName = rpcTechnicianName;
+                  console.log('Nom du technicien récupéré via RPC:', technicianName);
+                }
+              } else {
+                console.log('Erreur ou technicien non trouvé via RPC:', rpcError);
+                technicianName = `Technicien #${repairData.technician_id.substring(0, 8)}`;
+              }
+            }
+          } catch (err) {
+            console.error('Erreur lors de la récupération du technicien:', err);
+            technicianName = `Technicien #${repairData.technician_id.substring(0, 8)}`;
           }
         }
         
         // Récupérer les informations du point relais de dépôt
-        let dropOffRelayData = null;
+        let dropOffRelayName = 'Non défini';
         if (repairData.drop_off_relay_id) {
-          const { data: dropOffRelay, error: dropOffRelayError } = await supabase
-            .from('profiles')
-            .select('id, first_name, last_name')
-            .eq('id', repairData.drop_off_relay_id)
-            .maybeSingle();
-            
-          if (!dropOffRelayError && dropOffRelay) {
-            dropOffRelayData = dropOffRelay;
+          console.log('drop_off_relay_id trouvé:', repairData.drop_off_relay_id);
+          
+          try {
+            // Récupérer les informations du point relais directement depuis la table relay_points
+            const { data: relayPoint, error: relayPointError } = await supabase
+              .from('relay_points')
+              .select('*')
+              .eq('id', repairData.drop_off_relay_id)
+              .single();
+              
+            console.log('Données du point relais de dépôt:', relayPoint);
+              
+            if (!relayPointError && relayPoint) {
+              // Vérifier les champs disponibles et construire l'adresse complète
+              const name = relayPoint.name || 'PC Relais';
+              
+              // Déterminer si l'adresse est déjà complète dans un seul champ
+              let fullAddress = '';
+              if (relayPoint.address && relayPoint.address.includes(relayPoint.city || '') && relayPoint.address.includes(relayPoint.postal_code || '')) {
+                // L'adresse contient déjà la ville et le code postal
+                fullAddress = relayPoint.address;
+              } else {
+                // Construire l'adresse à partir des champs individuels
+                const street = relayPoint.street || relayPoint.address || '';
+                const city = relayPoint.city || '';
+                const postalCode = relayPoint.postal_code || '';
+                const country = relayPoint.country || 'France';
+                
+                // Éviter les doublons dans l'adresse
+                const addressParts = [];
+                if (street) addressParts.push(street);
+                if (postalCode && city) {
+                  addressParts.push(`${postalCode} ${city}`);
+                } else {
+                  if (postalCode) addressParts.push(postalCode);
+                  if (city) addressParts.push(city);
+                }
+                if (country && country !== 'France') addressParts.push(country);
+                
+                fullAddress = addressParts.join(', ');
+              }
+              
+              dropOffRelayName = `${name} - ${fullAddress}`;
+              console.log('Point relais de dépôt trouvé:', dropOffRelayName);
+            } else {
+              console.error('Erreur ou point relais de dépôt non trouvé dans relay_points:', relayPointError);
+              dropOffRelayName = `Point relais #${repairData.drop_off_relay_id.substring(0, 8)}`;
+            }
+          } catch (err) {
+            console.error('Erreur lors de la récupération du point relais de dépôt:', err);
+            dropOffRelayName = `Point relais #${repairData.drop_off_relay_id.substring(0, 8)}`;
           }
         }
         
         // Récupérer les informations du point relais de récupération
-        let pickupRelayData = null;
+        let pickupRelayName = 'Non défini';
         if (repairData.pickup_relay_id) {
-          const { data: pickupRelay, error: pickupRelayError } = await supabase
-            .from('profiles')
-            .select('id, first_name, last_name')
-            .eq('id', repairData.pickup_relay_id)
-            .maybeSingle();
-            
-          if (!pickupRelayError && pickupRelay) {
-            pickupRelayData = pickupRelay;
+          console.log('pickup_relay_id trouvé:', repairData.pickup_relay_id);
+          
+          try {
+            // Récupérer les informations du point relais directement depuis la table relay_points
+            const { data: relayPoint, error: relayPointError } = await supabase
+              .from('relay_points')
+              .select('*')
+              .eq('id', repairData.pickup_relay_id)
+              .single();
+              
+            console.log('Données du point relais de retrait:', relayPoint);
+              
+            if (!relayPointError && relayPoint) {
+              // Vérifier les champs disponibles et construire l'adresse complète
+              const name = relayPoint.name || 'PC Relais';
+              
+              // Déterminer si l'adresse est déjà complète dans un seul champ
+              let fullAddress = '';
+              if (relayPoint.address && relayPoint.address.includes(relayPoint.city || '') && relayPoint.address.includes(relayPoint.postal_code || '')) {
+                // L'adresse contient déjà la ville et le code postal
+                fullAddress = relayPoint.address;
+              } else {
+                // Construire l'adresse à partir des champs individuels
+                const street = relayPoint.street || relayPoint.address || '';
+                const city = relayPoint.city || '';
+                const postalCode = relayPoint.postal_code || '';
+                const country = relayPoint.country || 'France';
+                
+                // Éviter les doublons dans l'adresse
+                const addressParts = [];
+                if (street) addressParts.push(street);
+                if (postalCode && city) {
+                  addressParts.push(`${postalCode} ${city}`);
+                } else {
+                  if (postalCode) addressParts.push(postalCode);
+                  if (city) addressParts.push(city);
+                }
+                if (country && country !== 'France') addressParts.push(country);
+                
+                fullAddress = addressParts.join(', ');
+              }
+              
+              pickupRelayName = `${name} - ${fullAddress}`;
+              console.log('Point relais de retrait trouvé:', pickupRelayName);
+            } else {
+              console.error('Erreur ou point relais de retrait non trouvé dans relay_points:', relayPointError);
+              pickupRelayName = `Point relais #${repairData.pickup_relay_id.substring(0, 8)}`;
+            }
+          } catch (err) {
+            console.error('Erreur lors de la récupération du point relais de retrait:', err);
+            pickupRelayName = `Point relais #${repairData.pickup_relay_id.substring(0, 8)}`;
           }
         }
         
-        // Combiner toutes les données
-        const enrichedRepairData = {
-          ...repairData,
-          status: statusData,
-          client: clientData,
-          technician: technicianData,
-          dropOffRelay: dropOffRelayData,
-          pickupRelay: pickupRelayData
-        };
-        
         // Formater les données pour l'affichage
-        const formattedRepair: RepairDetail = {
-          id: enrichedRepairData.id,
-          clientId: enrichedRepairData.client_id,
-          clientName: enrichedRepairData.client_first_name && enrichedRepairData.client_last_name 
-            ? `${enrichedRepairData.client_first_name} ${enrichedRepairData.client_last_name}`.trim() 
-            : (enrichedRepairData.client 
-                ? `${enrichedRepairData.client.first_name || ''} ${enrichedRepairData.client.last_name || ''}`.trim() 
-                : undefined),
-          clientEmail: enrichedRepairData.client?.email,
-          clientPhone: enrichedRepairData.client?.phone,
-          deviceType: enrichedRepairData.device_type,
-          brand: enrichedRepairData.brand,
-          model: enrichedRepairData.model,
-          problemDescription: enrichedRepairData.problem_description,
-          preDiagnosis: enrichedRepairData.pre_diagnosis,
-          estimatedCost: enrichedRepairData.estimated_cost,
-          statusId: enrichedRepairData.status_id,
-          statusName: enrichedRepairData.status?.code,
-          statusLabel: enrichedRepairData.status?.label,
-          createdAt: enrichedRepairData.created_at,
-          updatedAt: enrichedRepairData.updated_at,
-          dropOffRelayId: enrichedRepairData.drop_off_relay_id,
-          dropOffRelayName: enrichedRepairData.dropOffRelay ? `${enrichedRepairData.dropOffRelay.first_name || ''} ${enrichedRepairData.dropOffRelay.last_name || ''}`.trim() : undefined,
-          pickupRelayId: enrichedRepairData.pickup_relay_id,
-          pickupRelayName: enrichedRepairData.pickupRelay ? `${enrichedRepairData.pickupRelay.first_name || ''} ${enrichedRepairData.pickupRelay.last_name || ''}`.trim() : undefined,
-          appointmentDate: enrichedRepairData.appointment_date,
-          technicianId: enrichedRepairData.technician_id,
-          technicianName: technicianName || 'Non assigné',
-          notes: repairData.notes
-        };
-        
-        setRepair(formattedRepair);
-        setNotes(formattedRepair.notes || '');
-        setEstimatedCost(formattedRepair.estimatedCost?.toString() || '');
-        setSelectedStatus(formattedRepair.statusId.toString());
-        setSelectedTechnician(formattedRepair.technicianId || '');
+        setRepair({
+          id: repairData.id,
+          clientId: repairData.client_id,
+          // Utiliser les informations du client si disponibles, sinon utiliser 'Client' comme nom par défaut
+          clientName: clientData && (clientData.first_name || clientData.last_name) ? 
+            `${clientData.first_name || ''} ${clientData.last_name || ''}`.trim() : 
+            (clientData?.email ? clientData.email.split('@')[0] : 'Client'),
+          clientEmail: clientData?.email || '',
+          clientPhone: clientData?.phone || '',
+          deviceType: repairData.device_type || '',
+          brand: repairData.brand || '',
+          model: repairData.model || '',
+          problemDescription: repairData.problem_description || '',
+          preDiagnosis: repairData.pre_diagnosis || '',
+          estimatedCost: repairData.estimated_cost,
+          statusId: repairData.status_id,
+          statusName: statusData?.code || '',
+          statusLabel: statusData?.label || '',
+          createdAt: repairData.created_at,
+          updatedAt: repairData.updated_at,
+          dropOffRelayId: repairData.drop_off_relay_id,
+          dropOffRelayName: dropOffRelayName,
+          pickupRelayId: repairData.pickup_relay_id,
+          pickupRelayName: pickupRelayName,
+          appointmentDate: repairData.appointment_date,
+          technicianId: repairData.technician_id,
+          technicianName: technicianName,
+          notes: repairData.notes || '',
+        });
         
         // Récupérer les options de statut
         const { data: statusOptions, error: statusOptionsError } = await supabase
           .from('repair_statuses')
-          .select('*')
+          .select('id, code, label')
           .order('id');
-        
-        if (statusOptionsError) throw statusOptionsError;
-        
-        // Convertir les données en StatusOption[]
-        const formattedStatusOptions: StatusOption[] = (statusOptions || []).map(status => ({
-          id: status.id,
-          code: status.code,
-          label: status.label
-        }));
-        
-        setStatusOptions(formattedStatusOptions);
-        
-        // Récupérer la liste des techniciens (uniquement pour les administrateurs)
-        if (user.role === 'admin') {
-          const { data: technicians, error: techniciansError } = await supabase
-            .from('profiles')
-            .select('id, first_name, last_name')
-            .eq('role', 'technician')
-            .order('last_name');
-            
-          if (!techniciansError && technicians) {
-            const formattedTechnicianOptions: TechnicianOption[] = technicians.map(tech => ({
-              id: tech.id,
-              name: `${tech.first_name || ''} ${tech.last_name || ''}`.trim()
-            }));
-            
-            setTechnicianOptions(formattedTechnicianOptions);
-          }
+          
+        if (!statusOptionsError) {
+          setStatusOptions(statusOptions);
         }
         
-      } catch (err) {
-        console.error('Erreur lors du chargement des détails de la réparation:', err);
-        setError('Impossible de charger les détails de la réparation. Veuillez réessayer.');
+        // Récupérer les techniciens disponibles depuis la nouvelle table technicians
+        const { data: technicians, error: techniciansError } = await supabase
+          .from('technicians')
+          .select('id, user_id, first_name, last_name')
+          .order('last_name');
+          
+        if (!techniciansError && technicians) {
+          const options = technicians.map(tech => ({
+            id: tech.id,
+            name: `${tech.first_name} ${tech.last_name}`
+          }));
+          setTechnicianOptions(options);
+        }
+        
+        // Initialiser les valeurs des champs de formulaire
+        setNotes(repairData.notes || '');
+        setEstimatedCost(repairData.estimated_cost ? repairData.estimated_cost.toString() : '');
+        setSelectedStatus(repairData.status_id);
+        setSelectedTechnician(repairData.technician_id || '');
+        
+      } catch (error) {
+        console.error('Erreur lors de la récupération des détails de la réparation:', error);
+        setError('Erreur lors de la récupération des détails de la réparation');
       } finally {
         setLoading(false);
       }
@@ -492,38 +618,41 @@ const RepairDetailPage: React.FC = () => {
           </Card.Header>
           <Card.Content>
             <div className="space-y-4">
-              <div>
-                <div className="flex items-center mb-2">
-                  <User className="h-4 w-4 text-gray-500 mr-2" />
-                  <h3 className="text-sm font-medium text-gray-500">Client</h3>
+              <div className="flex items-center">
+                <User className="h-5 w-5 text-gray-500 mr-3" />
+                <div>
+                  <p className="text-sm text-gray-500">Client</p>
+                  <p className="font-medium">{repair.clientName}</p>
+                  <p className="text-sm text-gray-500">{repair.clientEmail}</p>
+                  <p className="text-sm text-gray-500">{repair.clientPhone}</p>
                 </div>
-                <p className="text-gray-900">{repair.clientName || 'Non défini'}</p>
-                <p className="text-gray-600 text-sm">{repair.clientEmail || 'Non renseigné'}</p>
-                <p className="text-gray-600 text-sm">{repair.clientPhone || 'Non renseigné'}</p>
               </div>
               
-              <div>
-                <div className="flex items-center mb-2">
-                  <Wrench className="h-4 w-4 text-gray-500 mr-2" />
-                  <h3 className="text-sm font-medium text-gray-500">Technicien</h3>
+              <div className="flex items-center">
+                <Wrench className="h-5 w-5 text-gray-500 mr-3" />
+                <div>
+                  <p className="text-sm text-gray-500">Technicien</p>
+                  <p className="font-medium">{repair.technicianName || 'Non assigné'}</p>
+                  {repair.technicianId && <p className="text-xs text-gray-400">ID: {repair.technicianId}</p>}
                 </div>
-                <p className="text-gray-900">{repair.technicianName || 'Non assigné'}</p>
               </div>
               
-              <div>
-                <div className="flex items-center mb-2">
-                  <MapPin className="h-4 w-4 text-gray-500 mr-2" />
-                  <h3 className="text-sm font-medium text-gray-500">Point relais (dépôt)</h3>
+              <div className="flex items-center">
+                <MapPin className="h-5 w-5 text-gray-500 mr-3" />
+                <div>
+                  <p className="text-sm text-gray-500">Point relais (dépôt)</p>
+                  <p className="font-medium">{repair.dropOffRelayName || 'Non défini'}</p>
+                  {repair.dropOffRelayId && <p className="text-xs text-gray-400">ID: {repair.dropOffRelayId}</p>}
                 </div>
-                <p className="text-gray-900">{repair.dropOffRelayName || 'Non défini'}</p>
               </div>
               
-              <div>
-                <div className="flex items-center mb-2">
-                  <MapPin className="h-4 w-4 text-gray-500 mr-2" />
-                  <h3 className="text-sm font-medium text-gray-500">Point relais (retrait)</h3>
+              <div className="flex items-center">
+                <MapPin className="h-5 w-5 text-gray-500 mr-3" />
+                <div>
+                  <p className="text-sm text-gray-500">Point relais (retrait)</p>
+                  <p className="font-medium">{repair.pickupRelayName || 'Non défini'}</p>
+                  {repair.pickupRelayId && <p className="text-xs text-gray-400">ID: {repair.pickupRelayId}</p>}
                 </div>
-                <p className="text-gray-900">{repair.dropOffRelayName || 'Non défini'}</p>
               </div>
             </div>
           </Card.Content>
